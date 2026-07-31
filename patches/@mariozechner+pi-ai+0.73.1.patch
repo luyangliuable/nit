@@ -1,0 +1,13 @@
+diff --git a/node_modules/@mariozechner/pi-ai/dist/providers/anthropic.js b/node_modules/@mariozechner/pi-ai/dist/providers/anthropic.js
+index 3f0cc9a..d492dff 100644
+--- a/node_modules/@mariozechner/pi-ai/dist/providers/anthropic.js
++++ b/node_modules/@mariozechner/pi-ai/dist/providers/anthropic.js
+@@ -529,6 +529,8 @@ function supportsAdaptiveThinking(modelId) {
+         modelId.includes("opus-4.6") ||
+         modelId.includes("opus-4-7") ||
+         modelId.includes("opus-4.7") ||
++        modelId.includes("opus-4-8") ||
++        modelId.includes("opus-4.8") ||
+         modelId.includes("sonnet-4-6") ||
+         modelId.includes("sonnet-4.6"));
+ }

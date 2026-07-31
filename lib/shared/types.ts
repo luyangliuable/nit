@@ -1,0 +1,172 @@
+// Shared type definitions used by both the server (SessionManager, core review
+// logic) and the client (React UI). Keep this module free of Node imports so it
+// is safe to import from client components.
+
+export type SessionMode = "review" | "implement";
+
+// Per purpose model override. All default to the tab level model when unset.
+export interface ModelSelection {
+  provider: string;
+  model: string;
+  thinking: ThinkingLevel;
+}
+
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+
+// Mirrors the pr-review-bot flag surface, one field per flag, plus the new
+// fields needed by Nit (localPath, model selection, notifications).
+export interface SessionConfig {
+  id: string;
+  name: string;
+  createdAt: string;
+  mode: SessionMode;
+
+  // Review mode: the target GitHub repository, normalized to owner/name.
+  repo: string;
+  // Implement mode: path to an existing local clone. pi cwd is set here.
+  localPath: string;
+
+  // Poller flags (defaults match pr-review-bot.sh).
+  interval: number; // seconds
+  skills: string[]; // absolute paths forwarded to pi
+  maxAttempts: number;
+  diffCapBytes: number;
+  maxAgeDays: number;
+  debounceMinutes: number;
+  includeOwn: boolean;
+  blacklistAuthors: string[];
+  whitelistAuthors: string[];
+  whitelistPrs: string[];
+  appendPrompt: string;
+
+  // Whether the poller should auto resume on server start.
+  enabled: boolean;
+
+  // Model selection. Tab level default plus optional per purpose overrides.
+  model: ModelSelection;
+  reviewModel?: ModelSelection;
+  visualizationModel?: ModelSelection;
+  implementModel?: ModelSelection;
+
+  // Notification preferences.
+  notifyOnNewPr: boolean;
+  notifyOnNewCommit: boolean;
+  notifyOnVerdict: boolean;
+  sound: boolean;
+}
+
+export type ReviewDecision = "approve" | "suggestions";
+
+export interface ReviewComment {
+  path: string;
+  line: number;
+  side: "RIGHT";
+  body: string;
+}
+
+// A comment as tracked in the approval queue, with per comment human state.
+export interface QueuedComment extends ReviewComment {
+  id: string;
+  status: "pending" | "kept" | "deleted";
+  originalBody: string; // as generated, before any human edit
+}
+
+export interface ReviewVerdict {
+  decision: ReviewDecision;
+  summary: string;
+  comments: ReviewComment[];
+}
+
+export type ApprovalStatus =
+  | "reviewing" // sub session is running
+  | "pending" // verdict ready, waiting for human action
+  | "approved" // posted an approve review
+  | "posted" // posted suggestion comments
+  | "dismissed" // human dropped it, nothing posted
+  | "error"; // review failed
+
+// One entry in a session approval queue, keyed logically by repo#pr@sha.
+export interface ApprovalItem {
+  key: string; // repo#pr@sha
+  pr: number;
+  sha: string;
+  title: string;
+  author: string;
+  createdAt: string;
+  updatedAt: string;
+  status: ApprovalStatus;
+  decision?: ReviewDecision;
+  summary: string;
+  comments: QueuedComment[];
+  hasVisualization: boolean;
+  error?: string;
+}
+
+// Snapshot of a session sent to the client over SSE and REST.
+export interface SessionSnapshot {
+  config: SessionConfig;
+  pollerRunning: boolean;
+  lastPollAt?: string;
+  queue: ApprovalItem[];
+  unreadCount: number;
+}
+
+// Server sent events streamed to the client.
+export type ServerEvent =
+  | { type: "sessions"; sessions: SessionSnapshot[] }
+  | { type: "session_update"; session: SessionSnapshot }
+  | { type: "log"; sessionId: string; line: string }
+  | { type: "notification"; sessionId: string; kind: NotificationKind; title: string; body: string }
+  | { type: "chat"; sessionId: string; event: ChatStreamEvent };
+
+export type NotificationKind = "new_pr" | "new_commit" | "verdict" | "error";
+
+// Minimal chat streaming envelope for Implement mode. Mirrors the subset of pi
+// SDK events the UI needs.
+export type ChatStreamEvent =
+  | { type: "text_delta"; delta: string }
+  | { type: "thinking_delta"; delta: string }
+  | { type: "tool_start"; toolName: string; toolCallId: string }
+  | { type: "tool_end"; toolCallId: string; isError: boolean }
+  | { type: "message_start" }
+  | { type: "message_end" }
+  | { type: "agent_end" }
+  | { type: "error"; message: string };
+
+// Matches the pr-review-bot defaults. Opus 4.8 uses adaptive thinking; the
+// bundled pi-ai is patched (see patches/) to recognize opus-4-8 so high works.
+export const DEFAULT_MODEL: ModelSelection = {
+  provider: "portkey-anthropic",
+  model: "@bedrock-au/au.anthropic.claude-opus-4-8",
+  thinking: "high",
+};
+
+// Factory for a fresh session config with pr-review-bot defaults.
+export function defaultSessionConfig(id: string, name: string): SessionConfig {
+  const now = new Date().toISOString();
+  return {
+    id,
+    name,
+    createdAt: now,
+    mode: "review",
+    repo: "",
+    localPath: "",
+    interval: 60,
+    skills: [],
+    maxAttempts: 3,
+    diffCapBytes: 200000,
+    maxAgeDays: 14,
+    debounceMinutes: 0,
+    includeOwn: false,
+    blacklistAuthors: [],
+    whitelistAuthors: [],
+    whitelistPrs: [],
+    appendPrompt: "",
+    enabled: false,
+    model: { ...DEFAULT_MODEL },
+    notifyOnNewPr: true,
+    notifyOnNewCommit: true,
+    notifyOnVerdict: true,
+    sound: false,
+  };
+}
