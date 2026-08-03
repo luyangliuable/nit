@@ -121,15 +121,14 @@ export type ServerEvent =
 
 export type NotificationKind = "new_pr" | "new_commit" | "verdict" | "error";
 
-// Minimal chat streaming envelope for Implement mode. Mirrors the subset of pi
-// SDK events the UI needs.
+// Chat streaming envelope for Implement mode. The assistant and thinking events
+// carry the FULL current text for a given message id (a snapshot, not a delta),
+// so the client can upsert by id and duplicate deliveries never double text.
 export type ChatStreamEvent =
-  | { type: "text_delta"; delta: string }
-  | { type: "thinking_delta"; delta: string }
-  | { type: "tool_start"; toolName: string; toolCallId: string }
-  | { type: "tool_end"; toolCallId: string; isError: boolean }
-  | { type: "message_start" }
-  | { type: "message_end" }
+  | { type: "assistant"; id: number; text: string }
+  | { type: "thinking"; id: number; text: string }
+  | { type: "tool_start"; toolCallId: string; toolName: string; args: string }
+  | { type: "tool_end"; toolCallId: string; toolName: string; isError: boolean }
   | { type: "agent_end" }
   | { type: "error"; message: string };
 

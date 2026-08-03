@@ -92,3 +92,55 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Markdown rendering inside chat bubbles. Kept compact and flat. */
+@layer components {
+  .chat-md {
+    @apply text-sm leading-relaxed;
+  }
+  .chat-md > :first-child {
+    @apply mt-0;
+  }
+  .chat-md > :last-child {
+    @apply mb-0;
+  }
+  .chat-md p {
+    @apply my-2;
+  }
+  .chat-md h1,
+  .chat-md h2,
+  .chat-md h3 {
+    @apply mb-2 mt-3 font-semibold;
+  }
+  .chat-md ul {
+    @apply my-2 list-disc pl-5;
+  }
+  .chat-md ol {
+    @apply my-2 list-decimal pl-5;
+  }
+  .chat-md li {
+    @apply my-0.5;
+  }
+  .chat-md a {
+    @apply text-primary underline;
+  }
+  .chat-md code {
+    @apply rounded bg-muted px-1 py-0.5 font-mono text-[0.85em];
+  }
+  .chat-md pre {
+    @apply my-2 overflow-x-auto rounded-md border border-border bg-muted p-3;
+  }
+  .chat-md pre code {
+    @apply bg-transparent p-0;
+  }
+  .chat-md blockquote {
+    @apply my-2 border-l-2 border-border pl-3 text-muted-foreground;
+  }
+  .chat-md table {
+    @apply my-2 w-full border-collapse text-xs;
+  }
+  .chat-md th,
+  .chat-md td {
+    @apply border border-border px-2 py-1 text-left;
+  }
+}
