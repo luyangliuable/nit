@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 360" width="1000" height="360" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-end"><path d="M0 0 L10 5 L0 10 z" fill="#969ba6"/></marker></defs>
+<rect x="0" y="0" width="1000" height="360" fill="#0f131b"/>
+<text x="28" y="40" fill="#969ba6" font-size="17" font-weight="600">Implement mode</text>
+<rect x="40" y="70" width="180" height="72" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="130" y="100" fill="#e7eaef" font-size="16" font-weight="600" text-anchor="middle">Chat prompt</text>
+<text x="130" y="122" fill="#969ba6" font-size="15" text-anchor="middle">you and slash commands</text>
+<rect x="280" y="70" width="270" height="72" rx="12" fill="#171b24" stroke="#c63a3a" stroke-width="1.5"/>
+<text x="415" y="100" fill="#e7eaef" font-size="16" font-weight="600" text-anchor="middle">pi AgentSession</text>
+<text x="415" y="122" fill="#969ba6" font-size="15" text-anchor="middle">read bash edit write</text>
+<rect x="610" y="70" width="170" height="72" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="695" y="100" fill="#e7eaef" font-size="16" font-weight="600" text-anchor="middle">Local clone</text>
+<text x="695" y="122" fill="#969ba6" font-size="15" text-anchor="middle">pi cwd</text>
+<rect x="280" y="215" width="500" height="90" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="530" y="254" fill="#e7eaef" font-size="16" font-weight="600" text-anchor="middle">Git panel</text>
+<text x="530" y="276" fill="#969ba6" font-size="15" text-anchor="middle">branches   diff   commit   push   open PR</text>
+<rect x="840" y="215" width="120" height="90" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="900" y="265" fill="#e7eaef" font-size="15" text-anchor="middle">GitHub</text>
+<line x1="220" y1="106" x2="280" y2="106" stroke="#969ba6" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="550" y1="106" x2="610" y2="106" stroke="#969ba6" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="415" y1="142" x2="415" y2="215" stroke="#969ba6" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="780" y1="260" x2="840" y2="260" stroke="#969ba6" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="810" y="252" fill="#969ba6" font-size="12" text-anchor="middle">push / PR</text>
+</svg>

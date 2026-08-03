@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 420" width="1000" height="420" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-end"><path d="M0 0 L10 5 L0 10 z" fill="#969ba6"/></marker></defs>
+<rect x="0" y="0" width="1000" height="420" fill="#0f131b"/>
+<text x="28" y="40" fill="#969ba6" font-size="17" font-weight="600">Review flow</text>
+<rect x="40" y="175" width="170" height="72" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="125" y="205" fill="#e7eaef" font-size="16" font-weight="600" text-anchor="middle">Poller</text>
+<text x="125" y="227" fill="#969ba6" font-size="15" text-anchor="middle">watches the repo</text>
+<rect x="260" y="110" width="200" height="72" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="360" y="140" fill="#e7eaef" font-size="16" font-weight="600" text-anchor="middle">Review sub session</text>
+<text x="360" y="162" fill="#969ba6" font-size="15" text-anchor="middle">verdict JSON</text>
+<rect x="260" y="240" width="200" height="72" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="360" y="270" fill="#e7eaef" font-size="16" font-weight="600" text-anchor="middle">Visualization</text>
+<text x="360" y="292" fill="#969ba6" font-size="15" text-anchor="middle">self contained HTML</text>
+<rect x="510" y="175" width="175" height="72" rx="12" fill="#171b24" stroke="#c63a3a" stroke-width="1.5"/>
+<text x="598" y="205" fill="#e7eaef" font-size="16" font-weight="600" text-anchor="middle">Approval queue</text>
+<text x="598" y="227" fill="#969ba6" font-size="15" text-anchor="middle">pending</text>
+<rect x="735" y="120" width="225" height="150" rx="12" fill="#171b24" stroke="#c63a3a" stroke-width="1.5"/>
+<text x="848" y="167" fill="#e7eaef" font-size="16" font-weight="600" text-anchor="middle">Your review</text>
+<text x="848" y="189" fill="#969ba6" font-size="15" text-anchor="middle">approve</text>
+<text x="848" y="211" fill="#969ba6" font-size="15" text-anchor="middle">post suggestions</text>
+<text x="848" y="233" fill="#969ba6" font-size="15" text-anchor="middle">dismiss</text>
+<rect x="735" y="305" width="225" height="62" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="848" y="341" fill="#e7eaef" font-size="15" text-anchor="middle">GitHub</text>
+<line x1="210" y1="200" x2="260" y2="150" stroke="#969ba6" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="210" y1="224" x2="260" y2="274" stroke="#969ba6" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="460" y1="150" x2="510" y2="196" stroke="#969ba6" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="460" y1="274" x2="510" y2="226" stroke="#969ba6" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="685" y1="205" x2="735" y2="200" stroke="#969ba6" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="847" y1="270" x2="847" y2="305" stroke="#969ba6" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="847" y="280" fill="#969ba6" font-size="12" text-anchor="middle">on your click</text>
+</svg>

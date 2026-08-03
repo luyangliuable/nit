@@ -1,0 +1,39 @@
+.heroBanner {
+  padding: 4rem 1rem 3rem;
+  text-align: center;
+  background-color: var(--nit-bg);
+  border-bottom: 1px solid var(--nit-border);
+}
+
+.heroLogo {
+  display: block;
+  margin: 0 auto 0.75rem;
+}
+
+.heroTagline {
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: var(--ifm-heading-color);
+  margin-bottom: 0.5rem;
+}
+
+.heroSub {
+  max-width: 640px;
+  margin: 0 auto 1.75rem;
+  color: var(--ifm-color-content-secondary);
+}
+
+.buttons {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  margin-bottom: 2.5rem;
+}
+
+.heroDiagram {
+  width: 100%;
+  max-width: 860px;
+  height: auto;
+  border: 1px solid var(--nit-border);
+  border-radius: 12px;
+}

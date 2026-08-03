@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 420" width="1000" height="420" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-end"><path d="M0 0 L10 5 L0 10 z" fill="#969ba6"/></marker></defs>
+<rect x="0" y="0" width="1000" height="420" fill="#0f131b"/>
+<text x="28" y="40" fill="#969ba6" font-size="17" font-weight="600">Configuration</text>
+<rect x="34" y="66" width="284" height="150" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="54" y="100" fill="#c63a3a" font-size="16" font-weight="700">Target</text>
+<text x="54" y="130" fill="#e7eaef" font-size="14">repo</text>
+<text x="54" y="156" fill="#e7eaef" font-size="14">localPath</text>
+<rect x="358" y="66" width="284" height="150" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="378" y="100" fill="#c63a3a" font-size="16" font-weight="700">Polling</text>
+<text x="378" y="130" fill="#e7eaef" font-size="14">interval, debounce</text>
+<text x="378" y="156" fill="#e7eaef" font-size="14">maxAttempts, maxAgeDays</text>
+<text x="378" y="182" fill="#e7eaef" font-size="14">diffCap</text>
+<rect x="682" y="66" width="284" height="150" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="702" y="100" fill="#c63a3a" font-size="16" font-weight="700">Filters</text>
+<text x="702" y="130" fill="#e7eaef" font-size="14">includeOwn</text>
+<text x="702" y="156" fill="#e7eaef" font-size="14">blacklist authors</text>
+<text x="702" y="182" fill="#e7eaef" font-size="14">whitelist authors and PRs</text>
+<rect x="34" y="240" width="284" height="150" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="54" y="274" fill="#c63a3a" font-size="16" font-weight="700">Prompting</text>
+<text x="54" y="304" fill="#e7eaef" font-size="14">skills</text>
+<text x="54" y="330" fill="#e7eaef" font-size="14">appendPrompt</text>
+<rect x="358" y="240" width="284" height="150" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="378" y="274" fill="#c63a3a" font-size="16" font-weight="700">Model</text>
+<text x="378" y="304" fill="#e7eaef" font-size="14">model, thinking</text>
+<text x="378" y="330" fill="#e7eaef" font-size="14">per purpose overrides</text>
+<rect x="682" y="240" width="284" height="150" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="702" y="274" fill="#c63a3a" font-size="16" font-weight="700">Notifications</text>
+<text x="702" y="304" fill="#e7eaef" font-size="14">new PR, new commit</text>
+<text x="702" y="330" fill="#e7eaef" font-size="14">verdict, sound</text>
+</svg>

@@ -1,4 +1,5 @@
 node_modules
+**/node_modules
 .next
 out
 data
@@ -8,3 +9,19 @@ data
 .env.local
 next-env.d.ts
 *.tsbuildinfo
+
+# npm registry config may contain private tokens; never commit it
+.npmrc
+**/.npmrc
+
+# Docusaurus build artefacts
+website/build
+website/.docusaurus
+
+# Common language build artefacts
+.venv
+__pycache__
+*.pyc
+dist
+build
+target

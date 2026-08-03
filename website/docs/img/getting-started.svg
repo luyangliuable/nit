@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 280" width="1000" height="280" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-end"><path d="M0 0 L10 5 L0 10 z" fill="#969ba6"/></marker></defs>
+<rect x="0" y="0" width="1000" height="280" fill="#0f131b"/>
+<text x="28" y="40" fill="#969ba6" font-size="17" font-weight="600">Getting started</text>
+<rect x="34" y="118" width="205" height="96" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="136" y="160" fill="#e7eaef" font-size="16" font-weight="600" text-anchor="middle">Install</text>
+<text x="136" y="182" fill="#969ba6" font-size="15" text-anchor="middle">npm install</text>
+<circle cx="56" cy="140" r="15" fill="#c63a3a"/>
+<text x="56" y="145" fill="#e7eaef" font-size="15" font-weight="700" text-anchor="middle">1</text>
+<line x1="239" y1="166" x2="269" y2="166" stroke="#969ba6" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="269" y="118" width="205" height="96" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="372" y="160" fill="#e7eaef" font-size="16" font-weight="600" text-anchor="middle">Configure</text>
+<text x="372" y="182" fill="#969ba6" font-size="15" text-anchor="middle">pi model and gh auth</text>
+<circle cx="291" cy="140" r="15" fill="#c63a3a"/>
+<text x="291" y="145" fill="#e7eaef" font-size="15" font-weight="700" text-anchor="middle">2</text>
+<line x1="474" y1="166" x2="504" y2="166" stroke="#969ba6" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="504" y="118" width="205" height="96" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="606" y="160" fill="#e7eaef" font-size="16" font-weight="600" text-anchor="middle">Run</text>
+<text x="606" y="182" fill="#969ba6" font-size="15" text-anchor="middle">npm run dev</text>
+<circle cx="526" cy="140" r="15" fill="#c63a3a"/>
+<text x="526" y="145" fill="#e7eaef" font-size="15" font-weight="700" text-anchor="middle">3</text>
+<line x1="709" y1="166" x2="739" y2="166" stroke="#969ba6" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="739" y="118" width="205" height="96" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="842" y="160" fill="#e7eaef" font-size="16" font-weight="600" text-anchor="middle">Open</text>
+<text x="842" y="182" fill="#969ba6" font-size="15" text-anchor="middle">localhost:3000</text>
+<circle cx="761" cy="140" r="15" fill="#c63a3a"/>
+<text x="761" y="145" fill="#e7eaef" font-size="15" font-weight="700" text-anchor="middle">4</text>
+</svg>

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 280" width="1000" height="280" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-end"><path d="M0 0 L10 5 L0 10 z" fill="#969ba6"/></marker></defs>
+<rect x="0" y="0" width="1000" height="280" fill="#0f131b"/>
+<text x="28" y="40" fill="#969ba6" font-size="17" font-weight="600">Example: a pull request lands</text>
+<line x1="70" y1="150" x2="930" y2="150" stroke="#353a46" stroke-width="2"/>
+<circle cx="140" cy="150" r="14" fill="#171b24" stroke="#353a46" stroke-width="2"/>
+<text x="140" y="110" fill="#e7eaef" font-size="14" text-anchor="middle">New PR detected</text>
+<text x="140" y="192" fill="#969ba6" font-size="12" text-anchor="middle">step 1</text>
+<circle cx="400" cy="150" r="14" fill="#c63a3a" stroke="#c63a3a" stroke-width="2"/>
+<text x="400" y="110" fill="#e7eaef" font-size="14" text-anchor="middle">Verdict ready</text>
+<text x="400" y="192" fill="#969ba6" font-size="12" text-anchor="middle">step 2</text>
+<circle cx="660" cy="150" r="14" fill="#171b24" stroke="#353a46" stroke-width="2"/>
+<text x="660" y="110" fill="#e7eaef" font-size="14" text-anchor="middle">You review and edit</text>
+<text x="660" y="192" fill="#969ba6" font-size="12" text-anchor="middle">step 3</text>
+<circle cx="900" cy="150" r="14" fill="#c63a3a" stroke="#c63a3a" stroke-width="2"/>
+<text x="900" y="110" fill="#e7eaef" font-size="14" text-anchor="middle">Approve or post</text>
+<text x="900" y="192" fill="#969ba6" font-size="12" text-anchor="middle">step 4</text>
+</svg>

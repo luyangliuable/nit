@@ -1,0 +1,41 @@
+.features {
+  padding: 3rem 0;
+}
+
+.card {
+  display: block;
+  height: 100%;
+  border: 1px solid var(--nit-border);
+  border-radius: 12px;
+  overflow: hidden;
+  background-color: var(--nit-panel);
+  transition: border-color 0.15s ease;
+  color: inherit;
+  text-decoration: none;
+}
+
+.card:hover {
+  border-color: var(--ifm-color-primary);
+  text-decoration: none;
+  color: inherit;
+}
+
+.cardImage {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-bottom: 1px solid var(--nit-border);
+}
+
+.cardBody {
+  padding: 1.25rem;
+}
+
+.cardBody h3 {
+  margin-bottom: 0.5rem;
+}
+
+.cardBody p {
+  color: var(--ifm-color-content-secondary);
+  margin-bottom: 0;
+}

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 360" width="1000" height="360" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-end"><path d="M0 0 L10 5 L0 10 z" fill="#969ba6"/></marker></defs>
+<rect x="0" y="0" width="1000" height="360" fill="#0f131b"/>
+<text x="28" y="40" fill="#969ba6" font-size="17" font-weight="600">Architecture</text>
+<rect x="40" y="150" width="175" height="80" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="128" y="184" fill="#e7eaef" font-size="16" font-weight="600" text-anchor="middle">Browser UI</text>
+<text x="128" y="206" fill="#969ba6" font-size="15" text-anchor="middle">React, SSE client</text>
+<rect x="275" y="70" width="300" height="250" rx="14" fill="none" stroke="#353a46" stroke-width="1.5"/>
+<text x="425" y="96" fill="#969ba6" font-size="14" font-weight="600" text-anchor="middle">Node server (single process)</text>
+<rect x="295" y="116" width="260" height="46" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="425" y="144" fill="#e7eaef" font-size="15" text-anchor="middle">SessionManager and tabs</text>
+<rect x="295" y="174" width="260" height="46" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="425" y="202" fill="#e7eaef" font-size="15" text-anchor="middle">Poller and pi SDK sub sessions</text>
+<rect x="295" y="232" width="260" height="46" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="425" y="260" fill="#e7eaef" font-size="15" text-anchor="middle">SSE hub and REST API</text>
+<rect x="635" y="112" width="150" height="60" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="710" y="147" fill="#e7eaef" font-size="15" text-anchor="middle">gh CLI</text>
+<rect x="635" y="218" width="150" height="60" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="710" y="253" fill="#e7eaef" font-size="15" text-anchor="middle">git CLI</text>
+<rect x="845" y="112" width="120" height="60" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="905" y="147" fill="#e7eaef" font-size="15" text-anchor="middle">GitHub</text>
+<rect x="845" y="218" width="120" height="60" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="905" y="253" fill="#e7eaef" font-size="15" text-anchor="middle">Local clone</text>
+<line x1="215" y1="190" x2="275" y2="190" stroke="#969ba6" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="245" y="182" fill="#969ba6" font-size="12" text-anchor="middle">SSE / REST</text>
+<line x1="575" y1="140" x2="635" y2="142" stroke="#969ba6" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="575" y1="245" x2="635" y2="246" stroke="#969ba6" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="785" y1="142" x2="845" y2="142" stroke="#969ba6" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="815" y="134" fill="#969ba6" font-size="12" text-anchor="middle">gh api</text>
+<line x1="785" y1="248" x2="845" y2="248" stroke="#969ba6" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="815" y="240" fill="#969ba6" font-size="12" text-anchor="middle">worktree</text>
+</svg>

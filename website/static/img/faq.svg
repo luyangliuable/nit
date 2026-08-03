@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 300" width="940" height="300" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-end"><path d="M0 0 L10 5 L0 10 z" fill="#969ba6"/></marker></defs>
+<rect x="0" y="0" width="940" height="300" fill="#0f131b"/>
+<text x="28" y="40" fill="#969ba6" font-size="17" font-weight="600">Human in the loop</text>
+<rect x="50" y="120" width="200" height="84" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="150" y="156" fill="#e7eaef" font-size="16" font-weight="600" text-anchor="middle">Verdict</text>
+<text x="150" y="178" fill="#969ba6" font-size="15" text-anchor="middle">pending</text>
+<rect x="360" y="108" width="220" height="108" rx="12" fill="#171b24" stroke="#c63a3a" stroke-width="1.5"/>
+<text x="470" y="156" fill="#e7eaef" font-size="16" font-weight="600" text-anchor="middle">Your approval</text>
+<text x="470" y="178" fill="#969ba6" font-size="15" text-anchor="middle">button in the UI</text>
+<rect x="690" y="120" width="200" height="84" rx="12" fill="#171b24" stroke="#353a46" stroke-width="1.5"/>
+<text x="790" y="167" fill="#e7eaef" font-size="15" text-anchor="middle">GitHub</text>
+<line x1="250" y1="162" x2="360" y2="162" stroke="#969ba6" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="580" y1="162" x2="690" y2="162" stroke="#969ba6" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="635" y="154" fill="#969ba6" font-size="12" text-anchor="middle">on click only</text>
+<text x="470" y="250" fill="#969ba6" font-size="14" text-anchor="middle">nothing is posted automatically</text>
+</svg>
