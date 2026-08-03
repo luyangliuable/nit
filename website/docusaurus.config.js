@@ -111,3 +111,5 @@ const config = {
 };
 
 export default config;
+
+// Docs deployed to GitHub Pages via .github/workflows/deploy-docs.yaml
