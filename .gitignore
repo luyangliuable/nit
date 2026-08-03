@@ -1,3 +1,6 @@
+# A global gitignore ignores uppercase markdown; keep our README tracked
+!README.md
+
 node_modules
 **/node_modules
 .next
