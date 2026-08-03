@@ -43,17 +43,26 @@ export async function resolveModel(selection: ModelSelection): Promise<any> {
 export async function listAvailableModels(): Promise<
   { provider: string; id: string }[]
 > {
+  let list: { provider: string; id: string }[] = [];
   try {
     const registry = await getRegistry();
     const models = await registry.getAvailable();
-    return models.map((m: { provider: string; id: string }) => ({
+    list = models.map((m: { provider: string; id: string }) => ({
       provider: m.provider,
       id: m.id,
     }));
   } catch {
-    return [];
+    list = [];
   }
+  // Always append this local MLX model as a placeholder at the end of the list,
+  // even when it is not configured, so it can be picked in the dropdown.
+  if (!list.some((m) => m.id === PLACEHOLDER_MODEL.id)) {
+    list.push({ ...PLACEHOLDER_MODEL });
+  }
+  return list;
 }
+
+const PLACEHOLDER_MODEL = { provider: "mlx", id: "mlx-community/gemma-4-e4b-it-4bit" };
 
 // Run a single read only prompt in a throwaway in memory session and return the
 // full assistant text. Used for both the review verdict and the HTML
