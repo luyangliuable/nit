@@ -15,14 +15,30 @@ export function VerdictView({ snapshot, item }: { snapshot: SessionSnapshot; ite
   const id = snapshot.config.id;
   const [html, setHtml] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const [vizHeight, setVizHeight] = React.useState<number>();
+  const iframeRef = React.useRef<HTMLIFrameElement>(null);
   const prUrl = `https://github.com/${snapshot.config.repo}/pull/${item.pr}`;
 
   React.useEffect(() => {
     setHtml(null);
+    setVizHeight(undefined);
     if (item.hasVisualization) {
       void api.visualization(id, item.pr, item.sha).then(setHtml);
     }
   }, [id, item.pr, item.sha, item.hasVisualization]);
+
+  // Size the sandboxed iframe to its own content instead of a fixed height.
+  // allow-same-origin lets the parent read the document height; scripts stay
+  // disabled so the model generated HTML remains inert.
+  const measureViz = React.useCallback(() => {
+    const doc = iframeRef.current?.contentDocument;
+    if (!doc) return;
+    const h = Math.max(
+      doc.documentElement?.scrollHeight ?? 0,
+      doc.body?.scrollHeight ?? 0,
+    );
+    if (h > 0) setVizHeight(h + 2);
+  }, []);
 
   const terminal = item.status === "approved" || item.status === "posted" || item.status === "dismissed";
   const keptCount = item.comments.filter((c) => c.status !== "deleted").length;
@@ -72,10 +88,14 @@ export function VerdictView({ snapshot, item }: { snapshot: SessionSnapshot; ite
                   Change visualization
                 </div>
                 <iframe
+                  ref={iframeRef}
                   title={`PR ${item.pr} visualization`}
-                  sandbox=""
+                  sandbox="allow-same-origin"
                   srcDoc={html}
-                  className="h-[460px] w-full bg-white"
+                  onLoad={measureViz}
+                  scrolling="no"
+                  style={{ height: vizHeight ? `${vizHeight}px` : undefined }}
+                  className="block w-full bg-white"
                 />
               </div>
             )}
