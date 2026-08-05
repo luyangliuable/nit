@@ -192,6 +192,11 @@ export async function postSuggestions(
   sha: string,
   comments: InlineComment[],
 ): Promise<{ ok: boolean; threadIds: number[]; error?: string }> {
+  // gh api does not follow 307 redirects on POST, so a renamed/moved repo (or
+  // one addressed with non-canonical casing) fails with "HTTP 307". The GET
+  // based wrappers (pr list/diff) hide this because gh follows GET redirects.
+  // Resolve the canonical owner/name first so the raw POST hits the real repo.
+  const target = (await canonicalRepo(repo)) ?? repo;
   const payload = JSON.stringify({
     commit_id: sha,
     event: "COMMENT",
@@ -199,7 +204,7 @@ export async function postSuggestions(
   });
   const r = await exec(
     "gh",
-    ["api", `repos/${repo}/pulls/${pr}/reviews`, "-X", "POST", "--input", "-"],
+    ["api", `repos/${target}/pulls/${pr}/reviews`, "-X", "POST", "--input", "-"],
     { input: payload },
   );
   if (r.code !== 0 || !r.stdout.trim()) {
@@ -215,7 +220,7 @@ export async function postSuggestions(
   if (reviewId) {
     const c = await exec("gh", [
       "api",
-      `repos/${repo}/pulls/${pr}/reviews/${reviewId}/comments`,
+      `repos/${target}/pulls/${pr}/reviews/${reviewId}/comments`,
       "--jq",
       "[.[].id]",
     ]);

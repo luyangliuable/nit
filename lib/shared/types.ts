@@ -64,17 +64,47 @@ export interface ReviewComment {
   body: string;
 }
 
+// One line of referenced code shown alongside a suggestion.
+export interface CodeLine {
+  line: number; // RIGHT side line number
+  text: string; // line content, without the +/space diff prefix
+  kind: "add" | "context";
+}
+
 // A comment as tracked in the approval queue, with per comment human state.
 export interface QueuedComment extends ReviewComment {
   id: string;
   status: "pending" | "kept" | "deleted";
   originalBody: string; // as generated, before any human edit
+  // The referenced code region (target line plus a little context), extracted
+  // from the review diff for display.
+  codeContext?: CodeLine[];
 }
 
 export interface ReviewVerdict {
   decision: ReviewDecision;
   summary: string;
   comments: ReviewComment[];
+}
+
+// The models and config a review run used, captured for display on the PR.
+export interface ReviewRunInfo {
+  model: ModelSelection;
+  visualizationModel?: ModelSelection;
+  skills: string[];
+  appendPrompt: string;
+  diffCapBytes: number;
+  maxAttempts: number;
+  ranAt: string;
+}
+
+// One-off overrides for a manual re-review run. Any field left undefined falls
+// back to the session config.
+export interface ReviewOverrides {
+  model?: ModelSelection;
+  maxAttempts?: number;
+  skills?: string[];
+  appendPrompt?: string;
 }
 
 export type ApprovalStatus =
@@ -94,7 +124,12 @@ export interface ApprovalItem {
   author: string;
   createdAt: string;
   updatedAt: string;
+  lastCommitDate: string | null;
   status: ApprovalStatus;
+  // Model id the current/most recent review run is using (for display).
+  reviewingWith?: string;
+  // Snapshot of the models and config the review run used, for display.
+  reviewInfo?: ReviewRunInfo;
   decision?: ReviewDecision;
   summary: string;
   comments: QueuedComment[];

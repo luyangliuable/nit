@@ -31,6 +31,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     case "dismiss":
       await session.dismiss(body.key);
       return NextResponse.json({ ok: true });
+    case "re_review":
+      // Fire and forget: the review runs async and streams updates over SSE.
+      void session.reReview(body.key, body.overrides);
+      return NextResponse.json({ ok: true });
+    case "stop_review":
+      session.stopReview(body.key);
+      return NextResponse.json({ ok: true });
     case "keep_comment":
       session.keepComment(body.key, body.commentId, body.keep !== false);
       return NextResponse.json({ ok: true });

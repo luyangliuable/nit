@@ -5,6 +5,7 @@ import {
   type ApprovalItem,
   type QueuedComment,
   type NotificationKind,
+  type ReviewOverrides,
 } from "@/lib/shared/types";
 import {
   stateKey,
@@ -12,7 +13,7 @@ import {
   shouldReview,
   type StateStore,
 } from "@/lib/core/state";
-import { validRightLines, isCommentableLine, filterDiff } from "@/lib/core/diff";
+import { validRightLines, isCommentableLine, filterDiff, lineRegion } from "@/lib/core/diff";
 import { sanitizeText } from "@/lib/core/sanitize";
 import {
   currentLogin,
@@ -49,11 +50,23 @@ export class Session {
   private me = "";
   private lastPollAt: string | undefined;
   private unread = 0;
+  // Abort controllers for in-flight reviews, keyed by queue key, so a review
+  // can be stopped on demand.
+  private running = new Map<string, AbortController>();
 
   constructor(config: SessionConfig) {
     this.config = config;
     this.state = readJson<StateStore>(stateFile(config.id), {});
     this.queue = readJson<Queue>(this.queueFile(), {});
+    // A fresh process has no in-flight reviews, so any item persisted as
+    // "reviewing" is a zombie from a prior run. Mark it interrupted so it is no
+    // longer stuck and the poller can re-review it.
+    for (const item of Object.values(this.queue)) {
+      if (item.status === "reviewing") {
+        item.status = "error";
+        item.error = "interrupted";
+      }
+    }
     this.logger = new SessionLogger(config.id, (line) =>
       hub.publish({ type: "log", sessionId: config.id, line }),
     );
@@ -70,9 +83,14 @@ export class Session {
       config: this.config,
       pollerRunning: this.pollTimer !== null,
       lastPollAt: this.lastPollAt,
-      queue: Object.values(this.queue).sort((a, b) =>
-        b.updatedAt.localeCompare(a.updatedAt),
-      ),
+      queue: Object.values(this.queue).sort((a, b) => {
+        // Primary sort: lastCommitDate descending
+        if (a.lastCommitDate && b.lastCommitDate) {
+          return new Date(b.lastCommitDate).getTime() - new Date(a.lastCommitDate).getTime();
+        }
+        // Secondary sort: updatedAt descending (for items with no commit date)
+        return b.updatedAt.localeCompare(a.updatedAt);
+      }),
       unreadCount: this.unread,
     };
   }
@@ -276,17 +294,39 @@ export class Session {
     }
   }
 
-  private async reviewOne(pr: PrListItem, key: string): Promise<void> {
+  private async reviewOne(pr: PrListItem, key: string, overrides?: ReviewOverrides): Promise<void> {
     const now = new Date().toISOString();
+    // PR head commit date from GitHub (ISO string) or null if the lookup fails.
+    const lastCommitDate = await headCommitDate(this.config.repo, pr.headRefOid);
+    const usedModel = overrides?.model ?? this.config.reviewModel ?? this.config.model;
+    // Apply one-off overrides on top of the session config for this run.
+    const effectiveConfig: SessionConfig = {
+      ...this.config,
+      reviewModel: usedModel,
+      maxAttempts: overrides?.maxAttempts ?? this.config.maxAttempts,
+      skills: overrides?.skills ?? this.config.skills,
+      appendPrompt: overrides?.appendPrompt ?? this.config.appendPrompt,
+    };
     this.queue[key] = {
       key,
       pr: pr.number,
       sha: pr.headRefOid,
       title: pr.title,
       author: pr.author.login,
-      createdAt: now,
+      createdAt: pr.createdAt,
       updatedAt: now,
+      lastCommitDate,
       status: "reviewing",
+      reviewingWith: usedModel.model,
+      reviewInfo: {
+        model: usedModel,
+        visualizationModel: this.config.visualizationModel ?? this.config.model,
+        skills: effectiveConfig.skills,
+        appendPrompt: effectiveConfig.appendPrompt,
+        diffCapBytes: effectiveConfig.diffCapBytes,
+        maxAttempts: effectiveConfig.maxAttempts,
+        ranAt: now,
+      },
       summary: "",
       comments: [],
       hasVisualization: false,
@@ -295,7 +335,18 @@ export class Session {
     this.emit();
     this.logger.log(`REVIEWING repo=${this.config.repo} pr=#${pr.number} sha=${pr.headRefOid.slice(0, 12)}`);
 
-    const result = await reviewSemaphore.run(() => reviewPr(this.config, pr));
+    const ctrl = new AbortController();
+    this.running.set(key, ctrl);
+    const result = await reviewSemaphore.run(() =>
+      reviewPr(effectiveConfig, pr, {
+        signal: ctrl.signal,
+        onLog: (m) => this.logger.log(`pi pr=#${pr.number} ${m}`),
+      }),
+    );
+    this.running.delete(key);
+    // If the user stopped this review, stopReview already set the item state;
+    // do not overwrite it with the (now irrelevant) late result.
+    if (ctrl.signal.aborted) return;
     const item = this.queue[key];
     if (!item) return;
 
@@ -320,6 +371,7 @@ export class Session {
       originalBody: sanitizeText(c.body),
       id: randomId(),
       status: "pending",
+      codeContext: lineRegion(result.diff, c.path, c.line),
     }));
     item.status = "pending";
     item.updatedAt = new Date().toISOString();
@@ -353,6 +405,42 @@ export class Session {
         item.decision === "approve" ? "Ready to approve" : `${item.comments.length} suggestion(s)`,
       );
     }
+  }
+
+  // Re-run the review for an item already in the queue, optionally with a
+  // different model. Fetches fresh PR data so the current diff is reviewed.
+  async reReview(key: string, overrides?: ReviewOverrides): Promise<{ ok: boolean; error?: string }> {
+    const item = this.queue[key];
+    if (!item) return { ok: false, error: "not-found" };
+    if (item.status === "reviewing") return { ok: false, error: "already-reviewing" };
+    const pr = await viewPr(this.config.repo, String(item.pr));
+    if (!pr) return { ok: false, error: "pr-view-failed" };
+    this.logger.log(`RE-REVIEW pr=#${item.pr}${overrides?.model ? ` model=${overrides.model.model}` : ""}`);
+    await this.reviewOne(pr, key, overrides);
+    return { ok: true };
+  }
+
+  // Abort an in-flight review. The run resolves to an error state, which the
+  // user can re-review to restart.
+  stopReview(key: string): void {
+    // Abort the live run if one exists. If not (e.g. a zombie "reviewing" item
+    // left over from a restart), we still clear the state below.
+    const ctrl = this.running.get(key);
+    if (ctrl) ctrl.abort();
+    // Flip the item out of "reviewing" immediately so the UI reflects the stop
+    // even if the model request keeps running in the background.
+    const item = this.queue[key];
+    if (item && item.status === "reviewing") {
+      item.status = "error";
+      item.error = "stopped";
+      item.updatedAt = new Date().toISOString();
+      // Record a completed state for this sha so the poller's gate does not
+      // immediately re-review it. Manual Re-review bypasses the gate.
+      this.recordState(item, "stopped", []);
+      void this.persistQueue();
+      this.emit();
+    }
+    this.logger.log(`STOP pr=#${item?.pr ?? "?"}`);
   }
 
   // ---- human actions -------------------------------------------------------

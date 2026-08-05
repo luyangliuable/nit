@@ -1,3 +1,5 @@
+import type { CodeLine } from "@/lib/shared/types";
+
 // Ports of filter_diff and valid_right_lines from pr-review-bot.sh.
 
 const LOCK_BASENAMES = new Set([
@@ -130,4 +132,56 @@ export function isCommentableLine(
   line: number,
 ): boolean {
   return valid.has(`${path}\t${line}`);
+}
+
+// Extract the RIGHT side code region around `target` for `path` from a unified
+// diff: the target line plus up to `context` diff lines on each side. Returns
+// an empty array if the line is not present in the diff.
+export function lineRegion(
+  diff: string,
+  path: string,
+  target: number,
+  context = 3,
+): CodeLine[] {
+  let curPath = "";
+  let newno = 0;
+  const collected: CodeLine[] = [];
+
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("+++ ")) {
+      const parts = line.split(/\s+/);
+      curPath = (parts[1] ?? "").replace(/^b\//, "");
+      newno = 0;
+      continue;
+    }
+    if (line.startsWith("@@ ")) {
+      const fields = line.split(/\s+/);
+      let tok = "";
+      for (const f of fields) {
+        if (/^\+[0-9]/.test(f)) {
+          tok = f;
+          break;
+        }
+      }
+      newno = parseInt((tok.replace(/^\+/, "").split(",")[0] ?? "0"), 10) || 0;
+      continue;
+    }
+    if (line.startsWith("+")) {
+      if (curPath === path) collected.push({ line: newno, text: line.slice(1), kind: "add" });
+      newno++;
+      continue;
+    }
+    if (line.startsWith(" ")) {
+      if (curPath === path) collected.push({ line: newno, text: line.slice(1), kind: "context" });
+      newno++;
+      continue;
+    }
+    // '-' (removed) lines and headers do not advance the RIGHT side counter.
+  }
+
+  const idx = collected.findIndex((l) => l.line === target);
+  if (idx === -1) return [];
+  const start = Math.max(0, idx - context);
+  const end = Math.min(collected.length, idx + context + 1);
+  return collected.slice(start, end);
 }
