@@ -6,6 +6,8 @@ import {
   type QueuedComment,
   type NotificationKind,
   type ReviewOverrides,
+  type ChatStreamEvent,
+  type TranscriptBlock,
 } from "@/lib/shared/types";
 import {
   stateKey,
@@ -13,7 +15,7 @@ import {
   shouldReview,
   type StateStore,
 } from "@/lib/core/state";
-import { validRightLines, isCommentableLine, filterDiff, lineRegion } from "@/lib/core/diff";
+import { validRightLines, isCommentableLine, isCommentableRange, filterDiff, lineRegion } from "@/lib/core/diff";
 import { sanitizeText } from "@/lib/core/sanitize";
 import {
   currentLogin,
@@ -28,11 +30,13 @@ import {
   type PrListItem,
 } from "./gh";
 import { reviewPr, generateVisualization } from "./review";
+import { readReviewTranscript } from "./pi";
+import { githubAuthStatus } from "./octokit";
 import { reviewSemaphore } from "./semaphore";
 import { SessionLogger } from "./logger";
 import { hub } from "./events";
 import { readJson, writeJson } from "./store";
-import { stateFile, sessionDir, visualizationFile } from "./paths";
+import { stateFile, sessionDir, visualizationFile, reviewSessionDir } from "./paths";
 
 type Queue = Record<string, ApprovalItem>;
 
@@ -67,8 +71,8 @@ export class Session {
         item.error = "interrupted";
       }
     }
-    this.logger = new SessionLogger(config.id, (line) =>
-      hub.publish({ type: "log", sessionId: config.id, line }),
+    this.logger = new SessionLogger(config.id, (line, pr) =>
+      hub.publish({ type: "log", sessionId: config.id, line, pr }),
     );
   }
 
@@ -118,6 +122,19 @@ export class Session {
 
   logTail(): string[] {
     return this.logger.tail();
+  }
+
+  // Full review transcript (thinking, response, tool calls) for a PR, read from
+  // the persisted pi session so it survives restarts and re-selection.
+  reviewTranscript(pr: number): Promise<TranscriptBlock[]> {
+    const cwd = this.config.localPath?.trim() ? this.config.localPath : process.cwd();
+    return readReviewTranscript(reviewSessionDir(this.config.id, pr), cwd);
+  }
+
+  // Broadcast a live review stream event to open consoles. History is durable
+  // via the persisted pi session, so nothing is buffered here.
+  private pushReviewStream(pr: number, event: ChatStreamEvent): void {
+    hub.publish({ type: "review_stream", sessionId: this.config.id, pr, event });
   }
 
   // ---- config --------------------------------------------------------------
@@ -186,7 +203,7 @@ export class Session {
     for (const num of this.config.whitelistPrs) {
       const pr = await viewPr(this.config.repo, num);
       if (pr) byNumber.set(pr.number, pr);
-      else this.logger.log(`WARN pr=#${num} reason=whitelist-pr-view-failed`);
+      else this.logger.log(`WARN pr=#${num} reason=whitelist-pr-view-failed`, Number(num));
     }
     return [...byNumber.values()];
   }
@@ -209,7 +226,7 @@ export class Session {
         try {
           await this.considerPr(pr);
         } catch (err) {
-          this.logger.log(`ERROR pr=#${pr.number} reason=consider-failed ${String(err)}`);
+          this.logger.log(`ERROR pr=#${pr.number} reason=consider-failed ${String(err)}`, pr.number);
         }
       }
       this.emit();
@@ -265,11 +282,12 @@ export class Session {
         if (ageMin < this.config.debounceMinutes) {
           this.logger.log(
             `SKIP pr=#${pr.number} reason=debounce age_min=${ageMin} need=${this.config.debounceMinutes}`,
+            pr.number,
           );
           return;
         }
       } else {
-        this.logger.log(`WARN pr=#${pr.number} reason=commit-age-fetch-failed action=review-anyway`);
+        this.logger.log(`WARN pr=#${pr.number} reason=commit-age-fetch-failed action=review-anyway`, pr.number);
       }
     }
 
@@ -295,6 +313,34 @@ export class Session {
   }
 
   private async reviewOne(pr: PrListItem, key: string, overrides?: ReviewOverrides): Promise<void> {
+    // Gate on GitHub auth: without it the review agent's pr_* tools cannot read
+    // the PR, so fail fast with a clear error instead of a confusing tool error.
+    const authStatus = await githubAuthStatus();
+    if (!authStatus.ok) {
+      const ts = new Date().toISOString();
+      const base: ApprovalItem = this.queue[key] ?? {
+        key,
+        pr: pr.number,
+        sha: pr.headRefOid,
+        title: pr.title,
+        author: pr.author.login,
+        createdAt: pr.createdAt,
+        lastCommitDate: null,
+        summary: "",
+        comments: [],
+        hasVisualization: false,
+        status: "error",
+      };
+      this.queue[key] = { ...base, updatedAt: ts, status: "error", error: "github-auth" };
+      await this.persistQueue();
+      this.emit();
+      this.logger.log(`ERROR pr=#${pr.number} reason=github-auth`, pr.number);
+      if (this.config.notifyOnVerdict) {
+        this.notify("error", `Review blocked for PR #${pr.number}`, authStatus.error ?? "GitHub not authenticated");
+      }
+      return;
+    }
+
     const now = new Date().toISOString();
     // PR head commit date from GitHub (ISO string) or null if the lookup fails.
     const lastCommitDate = await headCommitDate(this.config.repo, pr.headRefOid);
@@ -320,7 +366,6 @@ export class Session {
       reviewingWith: usedModel.model,
       reviewInfo: {
         model: usedModel,
-        visualizationModel: this.config.visualizationModel ?? this.config.model,
         skills: effectiveConfig.skills,
         appendPrompt: effectiveConfig.appendPrompt,
         diffCapBytes: effectiveConfig.diffCapBytes,
@@ -333,14 +378,21 @@ export class Session {
     };
     await this.persistQueue();
     this.emit();
-    this.logger.log(`REVIEWING repo=${this.config.repo} pr=#${pr.number} sha=${pr.headRefOid.slice(0, 12)}`);
+    this.logger.log(`REVIEWING repo=${this.config.repo} pr=#${pr.number} sha=${pr.headRefOid.slice(0, 12)}`, pr.number);
+
+    // Start a fresh persisted transcript so a re-review does not stack on old
+    // runs; readReviewTranscript reads the most recent session in this dir.
+    const transcriptDir = reviewSessionDir(this.config.id, pr.number);
+    fs.rmSync(transcriptDir, { recursive: true, force: true });
 
     const ctrl = new AbortController();
     this.running.set(key, ctrl);
     const result = await reviewSemaphore.run(() =>
       reviewPr(effectiveConfig, pr, {
         signal: ctrl.signal,
-        onLog: (m) => this.logger.log(`pi pr=#${pr.number} ${m}`),
+        onLog: (m) => this.logger.log(`pi pr=#${pr.number} ${m}`, pr.number),
+        onStream: (event) => this.pushReviewStream(pr.number, event),
+        sessionDir: transcriptDir,
       }),
     );
     this.running.delete(key);
@@ -356,7 +408,7 @@ export class Session {
       item.updatedAt = new Date().toISOString();
       await this.persistQueue();
       this.emit();
-      this.logger.log(`ERROR pr=#${pr.number} reason=${item.error}`);
+      this.logger.log(`ERROR pr=#${pr.number} reason=${item.error}`, pr.number);
       if (this.config.notifyOnVerdict) {
         this.notify("error", `Review failed for PR #${pr.number}`, item.error);
       }
@@ -371,7 +423,7 @@ export class Session {
       originalBody: sanitizeText(c.body),
       id: randomId(),
       status: "pending",
-      codeContext: lineRegion(result.diff, c.path, c.line),
+      codeContext: lineRegion(result.diff, c.path, c.line, c.startLine),
     }));
     item.status = "pending";
     item.updatedAt = new Date().toISOString();
@@ -379,6 +431,7 @@ export class Session {
     this.emit();
     this.logger.log(
       `VERDICT pr=#${pr.number} decision=${item.decision} comments=${item.comments.length}`,
+      pr.number,
     );
 
     // Generate the visualization alongside the verdict (also capped).
@@ -393,7 +446,7 @@ export class Session {
           await this.persistQueue();
           this.emit();
         } else if (viz.error) {
-          this.logger.log(`WARN pr=#${pr.number} reason=${viz.error}`);
+          this.logger.log(`WARN pr=#${pr.number} reason=${viz.error}`, pr.number);
         }
       });
 
@@ -413,9 +466,24 @@ export class Session {
     const item = this.queue[key];
     if (!item) return { ok: false, error: "not-found" };
     if (item.status === "reviewing") return { ok: false, error: "already-reviewing" };
-    const pr = await viewPr(this.config.repo, String(item.pr));
-    if (!pr) return { ok: false, error: "pr-view-failed" };
-    this.logger.log(`RE-REVIEW pr=#${item.pr}${overrides?.model ? ` model=${overrides.model.model}` : ""}`);
+    // Prefer fresh PR data, but fall back to the cached queue item if the
+    // GitHub lookup fails (their API is often flaky) so a rerun still proceeds
+    // instead of silently doing nothing.
+    let pr = await viewPr(this.config.repo, String(item.pr));
+    if (!pr) {
+      this.logger.log(`RE-REVIEW pr=#${item.pr} warn=pr-view-failed using-cached`, item.pr);
+      pr = {
+        number: item.pr,
+        title: item.title,
+        body: "",
+        headRefOid: item.sha,
+        isDraft: false,
+        mergedAt: null,
+        author: { login: item.author },
+        createdAt: item.createdAt,
+      };
+    }
+    this.logger.log(`RE-REVIEW pr=#${item.pr}${overrides?.model ? ` model=${overrides.model.model}` : ""}`, item.pr);
     await this.reviewOne(pr, key, overrides);
     return { ok: true };
   }
@@ -440,7 +508,7 @@ export class Session {
       void this.persistQueue();
       this.emit();
     }
-    this.logger.log(`STOP pr=#${item?.pr ?? "?"}`);
+    this.logger.log(`STOP pr=#${item?.pr ?? "?"}`, item?.pr);
   }
 
   // ---- human actions -------------------------------------------------------
@@ -470,7 +538,7 @@ export class Session {
     if (!item) return { ok: false, error: "not-found" };
     const res = await postApprove(this.config.repo, item.pr, item.summary || "lgtm");
     if (!res.ok) {
-      this.logger.log(`ERROR pr=#${item.pr} reason=approve-post-failed ${res.error ?? ""}`);
+      this.logger.log(`ERROR pr=#${item.pr} reason=approve-post-failed ${res.error ?? ""}`, item.pr);
       return res;
     }
     this.recordState(item, "approve", []);
@@ -478,7 +546,7 @@ export class Session {
     item.updatedAt = new Date().toISOString();
     await this.persistQueue();
     this.emit();
-    this.logger.log(`REVIEW repo=${this.config.repo} pr=#${item.pr} outcome=approve comments=0`);
+    this.logger.log(`REVIEW repo=${this.config.repo} pr=#${item.pr} outcome=approve comments=0`, item.pr);
     return { ok: true };
   }
 
@@ -494,11 +562,22 @@ export class Session {
 
     const toPost = item.comments
       .filter((c) => c.status !== "deleted")
-      .map((c) => ({ path: c.path, line: c.line, side: "RIGHT" as const, body: sanitizeText(c.body) }))
+      .map((c) => {
+        const base = { path: c.path, line: c.line, side: "RIGHT" as const, body: sanitizeText(c.body) };
+        // Keep the multi-line anchor only when the whole span is in one hunk;
+        // otherwise silently downgrade to a single-line comment.
+        if (c.startLine !== undefined && isCommentableRange(valid, c.path, c.startLine, c.line)) {
+          return { ...base, start_line: c.startLine, start_side: "RIGHT" as const };
+        }
+        if (c.startLine !== undefined) {
+          this.logger.log(`DOWNGRADED pr=#${item.pr} path=${c.path} start=${c.startLine} line=${c.line} reason=range-not-in-diff`, item.pr);
+        }
+        return base;
+      })
       .filter((c) => {
         if (c.body === "") return false;
         if (!isCommentableLine(valid, c.path, c.line)) {
-          this.logger.log(`DROPPED pr=#${item.pr} path=${c.path} line=${c.line} reason=not-in-diff`);
+          this.logger.log(`DROPPED pr=#${item.pr} path=${c.path} line=${c.line} reason=not-in-diff`, item.pr);
           return false;
         }
         return true;
@@ -508,7 +587,7 @@ export class Session {
 
     const res = await postSuggestions(this.config.repo, item.pr, item.sha, toPost);
     if (!res.ok) {
-      this.logger.log(`ERROR pr=#${item.pr} reason=review-post-failed ${res.error ?? ""}`);
+      this.logger.log(`ERROR pr=#${item.pr} reason=review-post-failed ${res.error ?? ""}`, item.pr);
       return { ok: false, error: res.error };
     }
     this.recordState(item, "suggestions", res.threadIds);
@@ -516,7 +595,7 @@ export class Session {
     item.updatedAt = new Date().toISOString();
     await this.persistQueue();
     this.emit();
-    this.logger.log(`REVIEW repo=${this.config.repo} pr=#${item.pr} outcome=suggestions comments=${toPost.length}`);
+    this.logger.log(`REVIEW repo=${this.config.repo} pr=#${item.pr} outcome=suggestions comments=${toPost.length}`, item.pr);
     return { ok: true };
   }
 
@@ -530,7 +609,7 @@ export class Session {
     item.updatedAt = new Date().toISOString();
     await this.persistQueue();
     this.emit();
-    this.logger.log(`DISMISSED repo=${this.config.repo} pr=#${item.pr}`);
+    this.logger.log(`DISMISSED repo=${this.config.repo} pr=#${item.pr}`, item.pr);
   }
 
   private recordState(item: ApprovalItem, outcome: string, threadIds: number[]): void {

@@ -97,6 +97,8 @@
 @layer components {
   .chat-md {
     @apply text-sm leading-relaxed;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
   .chat-md > :first-child {
     @apply mt-0;
@@ -126,6 +128,8 @@
   }
   .chat-md code {
     @apply rounded bg-muted px-1 py-0.5 font-mono text-[0.85em];
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
   .chat-md pre {
     @apply my-2 overflow-x-auto rounded-md border border-border bg-muted p-3;

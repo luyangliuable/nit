@@ -1,29 +1,20 @@
 import type { SessionConfig, ChatStreamEvent } from "@/lib/shared/types";
 import { resolveModel, getAuth, getRegistry } from "./pi";
 import { loadPiSdk } from "./pi-sdk";
+import { createPiEventMapper } from "./pi-stream";
 import { hub } from "./events";
 
 // Implement mode interactive session. Wraps a pi AgentSession with coding tools
 // (read, bash, edit, write), persisted as a native pi JSONL session so history
 // survives restarts and is openable by the pi CLI. Streams events to the UI
 // over SSE and supports pi slash commands via prompt template expansion.
-// Concatenate the text or thinking content of an assistant message snapshot.
-function fullContent(partial: unknown, kind: "text" | "thinking"): string {
-  const content = (partial as { content?: unknown })?.content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .filter((c) => (c as { type?: string })?.type === kind)
-    .map((c) => (kind === "text" ? (c as { text?: string }).text : (c as { thinking?: string }).thinking) ?? "")
-    .join("");
-}
-
 export class ChatSession {
   private session: any = null;
   private unsubscribe: (() => void) | null = null;
   private slashCommands: { name: string; description: string }[] = [];
   private cwd: string;
-  // Monotonic id for the current assistant message, used to key snapshots.
-  private assistantId = 0;
+  // Shared mapper from raw pi events to ChatStreamEvents.
+  private mapEvent = createPiEventMapper();
 
   constructor(private config: SessionConfig) {
     this.cwd = config.localPath && config.localPath.trim() !== "" ? config.localPath : process.cwd();
@@ -59,53 +50,9 @@ export class ChatSession {
     this.session = session;
 
     this.unsubscribe = session.subscribe((event: unknown) => {
-      this.handleEvent(event);
+      const mapped = this.mapEvent(event);
+      if (mapped) this.emit(mapped);
     });
-  }
-
-  private handleEvent(event: unknown): void {
-    const ev = event as {
-      type: string;
-      message?: { role?: string };
-      assistantMessageEvent?: { type?: string; partial?: unknown };
-      toolName?: string;
-      toolCallId?: string;
-      isError?: boolean;
-      args?: unknown;
-    };
-    switch (ev.type) {
-      case "message_start":
-        if (ev.message?.role === "assistant") this.assistantId++;
-        break;
-      case "message_update": {
-        const ame = ev.assistantMessageEvent;
-        if (!ame) break;
-        if (this.assistantId === 0) this.assistantId = 1;
-        const kind = ame.type ?? "";
-        if (kind.startsWith("text")) {
-          this.emit({ type: "assistant", id: this.assistantId, text: fullContent(ame.partial, "text") });
-        } else if (kind.startsWith("thinking")) {
-          this.emit({ type: "thinking", id: this.assistantId, text: fullContent(ame.partial, "thinking") });
-        }
-        break;
-      }
-      case "tool_execution_start": {
-        let args = "";
-        try {
-          args = ev.args ? JSON.stringify(ev.args) : "";
-        } catch {
-          args = "";
-        }
-        this.emit({ type: "tool_start", toolCallId: ev.toolCallId ?? "", toolName: ev.toolName ?? "", args: args.slice(0, 400) });
-        break;
-      }
-      case "tool_execution_end":
-        this.emit({ type: "tool_end", toolCallId: ev.toolCallId ?? "", toolName: ev.toolName ?? "", isError: !!ev.isError });
-        break;
-      case "agent_end":
-        this.emit({ type: "agent_end" });
-        break;
-    }
   }
 
   getSlashCommands(): { name: string; description: string }[] {

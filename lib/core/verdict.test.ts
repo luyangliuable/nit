@@ -33,6 +33,20 @@ describe("parseVerdict", () => {
     expect(v?.comments).toHaveLength(1);
     expect(v?.comments[0].path).toBe("a.ts");
   });
+  it("parses a multi-line region via start_line", () => {
+    const t =
+      '{"decision":"suggestions","summary":"see below","comments":[{"path":"a.ts","start_line":3,"line":6,"side":"RIGHT","body":"consider x"}]}';
+    const v = parseVerdict(t);
+    expect(v?.comments[0].startLine).toBe(3);
+    expect(v?.comments[0].line).toBe(6);
+  });
+  it("drops start_line when it is not strictly less than line", () => {
+    const t =
+      '{"decision":"suggestions","summary":"see below","comments":[{"path":"a.ts","start_line":6,"line":6,"side":"RIGHT","body":"consider x"}]}';
+    const v = parseVerdict(t);
+    expect(v?.comments[0].startLine).toBeUndefined();
+    expect(v?.comments[0].line).toBe(6);
+  });
   it("returns null on invalid json", () => {
     expect(parseVerdict("{ not json")).toBeNull();
   });

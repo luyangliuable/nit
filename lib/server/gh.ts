@@ -181,6 +181,10 @@ export interface InlineComment {
   path: string;
   line: number;
   side: "RIGHT";
+  // Optional multi-line anchor. When present, `start_line` < `line` and both
+  // sides are "RIGHT", producing a GitHub multi-line review comment.
+  start_line?: number;
+  start_side?: "RIGHT";
   body: string;
 }
 

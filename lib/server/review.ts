@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import type { SessionConfig, ReviewVerdict, ModelSelection } from "@/lib/shared/types";
+import type { SessionConfig, ReviewVerdict, ModelSelection, ChatStreamEvent } from "@/lib/shared/types";
 import { filterDiff } from "@/lib/core/diff";
 import {
   buildReviewPrompt,
@@ -9,7 +9,9 @@ import {
 import { parseVerdict } from "@/lib/core/verdict";
 import { prDiff } from "./gh";
 import { runReadOnlyPrompt } from "./pi";
-import { visualizationFile, prDir, ensureDir } from "./paths";
+import { createPrReviewTools, fetchPrOverview } from "./gh-tools";
+import { prepareWorktree } from "./worktree";
+import { visualizationFile, prDir, ensureDir, rawVerdictFile } from "./paths";
 import type { PrListItem } from "./gh";
 
 export interface ReviewResult {
@@ -28,6 +30,8 @@ export async function reviewPr(
     signal?: AbortSignal;
     modelOverride?: ModelSelection;
     onLog?: (msg: string) => void;
+    onStream?: (event: ChatStreamEvent) => void;
+    sessionDir?: string;
   },
 ): Promise<ReviewResult> {
   const rawDiff = await prDiff(config.repo, pr.number);
@@ -42,38 +46,92 @@ export async function reviewPr(
       `\n\n[diff truncated at ${config.diffCapBytes} bytes]`;
   }
 
-  const cwd = config.localPath && config.localPath.trim() !== "" ? config.localPath : process.cwd();
   const model = opts?.modelOverride ?? config.reviewModel ?? config.model;
+
+  // Check out the PR head in a per-PR worktree (shared clone, no re-clone) so
+  // the agent can explore the whole repo with its native read/grep/find/ls
+  // tools. Fall back to the configured cwd if the checkout fails.
+  const localPath = config.localPath && config.localPath.trim() !== "" ? config.localPath : undefined;
+  let cwd = localPath ?? process.cwd();
+  try {
+    cwd = await prepareWorktree(config.repo, pr.number, pr.headRefOid, localPath);
+  } catch (err) {
+    opts?.onLog?.(`worktree-prep-failed ${String(err)} (exploring without a checkout)`);
+  }
+
+  // Front load the PR overview (metadata, changed files, commits, prior reviews
+  // and comments) so the agent has context without a round trip.
+  let overview = "";
+  try {
+    overview = await fetchPrOverview(config.repo, pr.number);
+  } catch (err) {
+    opts?.onLog?.(`overview-fetch-failed ${String(err)}`);
+  }
 
   const prompt = buildReviewPrompt({
     repo: config.repo,
     pr: pr.number,
     title: pr.title,
-    body: pr.body ?? "",
-    diff,
+    overview,
+    hasCheckout: cwd !== process.cwd(),
     append: config.appendPrompt,
   });
 
-  let text: string;
-  try {
-    text = await runReadOnlyPrompt({
-      prompt,
-      cwd,
-      model,
-      skills: config.skills,
-      signal: opts?.signal,
-      label: `#${pr.number}`,
-      onLog: opts?.onLog,
-    });
-  } catch (err) {
-    return { diff, error: `review-run-failed: ${String(err)}` };
+  // The agent pulls the exact changes on demand via these read only tools; we
+  // still keep `diff` server side for comment validation and the visualization.
+  const prTools = createPrReviewTools(config.repo, pr.number);
+
+  // Retry on empty/unparseable output, up to maxAttempts, appending a
+  // corrective instruction after the first miss. This is what makes the
+  // maxAttempts config actually do something.
+  const maxAttempts = Math.max(1, config.maxAttempts || 1);
+  const corrective =
+    "\n\nIMPORTANT: Your previous reply could not be parsed. Reply with ONLY the JSON " +
+    "object described above, valid JSON, with every newline inside a string escaped as \\n. " +
+    "No prose, no explanation, no markdown code fences.";
+
+  let lastError = "invalid-verdict-json";
+  let lastText = "";
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let text: string;
+    try {
+      text = await runReadOnlyPrompt({
+        prompt: attempt === 1 ? prompt : prompt + corrective,
+        cwd,
+        model,
+        skills: config.skills,
+        signal: opts?.signal,
+        label: `#${pr.number}${maxAttempts > 1 ? ` a${attempt}/${maxAttempts}` : ""}`,
+        onLog: opts?.onLog,
+        onStream: opts?.onStream,
+        sessionDir: opts?.sessionDir,
+        customTools: prTools,
+      });
+    } catch (err) {
+      lastError = `review-run-failed: ${String(err)}`;
+      // Do not retry a user-initiated stop.
+      if (opts?.signal?.aborted) return { diff, error: lastError };
+      continue;
+    }
+
+    const verdict = parseVerdict(text);
+    if (verdict) return { verdict, diff };
+
+    lastText = text;
+    lastError = "invalid-verdict-json";
+    opts?.onLog?.(`attempt ${attempt}/${maxAttempts} invalid-verdict-json rawLen=${text.length}`);
+    if (opts?.signal?.aborted) return { diff, error: lastError };
   }
 
-  const verdict = parseVerdict(text);
-  if (!verdict) {
-    return { diff, error: "invalid-verdict-json" };
+  // Persist the last raw output so the failure can be inspected.
+  try {
+    ensureDir(prDir(config.id, pr.number));
+    fs.writeFileSync(rawVerdictFile(config.id, pr.number, pr.headRefOid), lastText, "utf8");
+    opts?.onLog?.(`saved raw output to ${rawVerdictFile(config.id, pr.number, pr.headRefOid)}`);
+  } catch {
+    /* best effort */
   }
-  return { verdict, diff };
+  return { diff, error: lastError };
 }
 
 // Generate the HTML visualization for a PR and save it, returning the file path
@@ -86,7 +144,8 @@ export async function generateVisualization(
 ): Promise<{ path?: string; error?: string }> {
   if (!diff) return { error: "no-diff" };
   const cwd = config.localPath && config.localPath.trim() !== "" ? config.localPath : process.cwd();
-  const model = config.visualizationModel ?? config.model;
+  // Always visualize with the review model to keep configuration simple.
+  const model = config.reviewModel ?? config.model;
 
   const prompt = buildVisualizationPrompt({
     repo: config.repo,

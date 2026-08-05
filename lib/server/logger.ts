@@ -21,18 +21,18 @@ function day(): string {
 export class SessionLogger {
   constructor(
     private readonly sessionId: string,
-    private readonly sink?: (line: string) => void,
+    private readonly sink?: (line: string, pr?: number) => void,
   ) {}
 
-  log(message: string): void {
+  log(message: string, pr?: number): void {
     const line = `[${ts()}] ${message}`;
     const dir = logsDir(this.sessionId);
     ensureDir(dir);
     fs.appendFileSync(path.join(dir, `${day()}.log`), line + "\n");
-    this.sink?.(line);
+    this.sink?.(line, pr);
   }
 
-  tail(maxLines = 200): string[] {
+  tail(maxLines = 5000): string[] {
     const file = path.join(logsDir(this.sessionId), `${day()}.log`);
     try {
       const raw = fs.readFileSync(file, "utf8");

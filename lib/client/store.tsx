@@ -7,11 +7,13 @@ import type {
   SessionConfig,
   ServerEvent,
   ChatStreamEvent,
+  AuthStatus,
 } from "@/lib/shared/types";
 import { api } from "./api";
 
 type ChatListener = (event: ChatStreamEvent) => void;
-type LogListener = (line: string) => void;
+type LogListener = (line: string, pr?: number) => void;
+type ReviewStreamListener = (pr: number, event: ChatStreamEvent) => void;
 
 interface StoreValue {
   sessions: SessionSnapshot[];
@@ -23,6 +25,8 @@ interface StoreValue {
   action: (id: string, body: Record<string, unknown>) => Promise<{ ok?: boolean; error?: string }>;
   subscribeChat: (id: string, fn: ChatListener) => () => void;
   subscribeLog: (id: string, fn: LogListener) => () => void;
+  subscribeReviewStream: (id: string, fn: ReviewStreamListener) => () => void;
+  auth: AuthStatus | null;
   soundEnabled: boolean;
 }
 
@@ -57,8 +61,10 @@ function playBeep() {
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [sessions, setSessions] = React.useState<SessionSnapshot[]>([]);
   const [activeId, setActiveId] = React.useState<string | null>(null);
+  const [auth, setAuth] = React.useState<AuthStatus | null>(null);
   const chatListeners = React.useRef(new Map<string, Set<ChatListener>>());
   const logListeners = React.useRef(new Map<string, Set<LogListener>>());
+  const reviewStreamListeners = React.useRef(new Map<string, Set<ReviewStreamListener>>());
   const sessionsRef = React.useRef<SessionSnapshot[]>([]);
   sessionsRef.current = sessions;
 
@@ -103,9 +109,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         break;
       case "log": {
         const set = logListeners.current.get(event.sessionId);
-        if (set) set.forEach((fn) => fn(event.line));
+        if (set) set.forEach((fn) => fn(event.line, event.pr));
         break;
       }
+      case "review_stream": {
+        const set = reviewStreamListeners.current.get(event.sessionId);
+        if (set) set.forEach((fn) => fn(event.pr, event.event));
+        break;
+      }
+      case "auth":
+        setAuth(event.status);
+        break;
       case "chat": {
         const set = chatListeners.current.get(event.sessionId);
         if (set) set.forEach((fn) => fn(event.event));
@@ -183,6 +197,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => set?.delete(fn);
   }, []);
 
+  const subscribeReviewStream = React.useCallback((id: string, fn: ReviewStreamListener) => {
+    let set = reviewStreamListeners.current.get(id);
+    if (!set) {
+      set = new Set();
+      reviewStreamListeners.current.set(id, set);
+    }
+    set.add(fn);
+    return () => set?.delete(fn);
+  }, []);
+
   const value: StoreValue = {
     sessions,
     activeId,
@@ -193,6 +217,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     action,
     subscribeChat,
     subscribeLog,
+    subscribeReviewStream,
+    auth,
     soundEnabled,
   };
 

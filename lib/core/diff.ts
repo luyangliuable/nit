@@ -134,13 +134,34 @@ export function isCommentableLine(
   return valid.has(`${path}\t${line}`);
 }
 
-// Extract the RIGHT side code region around `target` for `path` from a unified
-// diff: the target line plus up to `context` diff lines on each side. Returns
-// an empty array if the line is not present in the diff.
+// Every line in the inclusive [start, end] range must be commentable on the
+// RIGHT side. GitHub multi-line comments require both endpoints (and the span
+// between them) to live in the same diff hunk, so a gap means the range would
+// 422 and should be downgraded to a single-line comment.
+export function isCommentableRange(
+  valid: Set<string>,
+  path: string,
+  start: number,
+  end: number,
+): boolean {
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) {
+    return false;
+  }
+  for (let n = start; n <= end; n++) {
+    if (!valid.has(`${path}\t${n}`)) return false;
+  }
+  return true;
+}
+
+// Extract the RIGHT side code region for `path` from a unified diff: the
+// referenced range [start, target] plus up to `context` diff lines on each
+// side. When `start` is omitted the range collapses to the single `target`
+// line. Returns an empty array if the target line is not present in the diff.
 export function lineRegion(
   diff: string,
   path: string,
   target: number,
+  start?: number,
   context = 3,
 ): CodeLine[] {
   let curPath = "";
@@ -179,9 +200,12 @@ export function lineRegion(
     // '-' (removed) lines and headers do not advance the RIGHT side counter.
   }
 
-  const idx = collected.findIndex((l) => l.line === target);
-  if (idx === -1) return [];
-  const start = Math.max(0, idx - context);
-  const end = Math.min(collected.length, idx + context + 1);
-  return collected.slice(start, end);
+  const endIdx = collected.findIndex((l) => l.line === target);
+  if (endIdx === -1) return [];
+  const startTarget = start !== undefined && start < target ? start : target;
+  const startIdx = collected.findIndex((l) => l.line === startTarget);
+  const anchorStart = startIdx === -1 ? endIdx : startIdx;
+  const from = Math.max(0, anchorStart - context);
+  const to = Math.min(collected.length, endIdx + context + 1);
+  return collected.slice(from, to);
 }

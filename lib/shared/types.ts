@@ -45,7 +45,6 @@ export interface SessionConfig {
   // Model selection. Tab level default plus optional per purpose overrides.
   model: ModelSelection;
   reviewModel?: ModelSelection;
-  visualizationModel?: ModelSelection;
   implementModel?: ModelSelection;
 
   // Notification preferences.
@@ -59,7 +58,12 @@ export type ReviewDecision = "approve" | "suggestions";
 
 export interface ReviewComment {
   path: string;
+  // The last line of the referenced region (GitHub's anchor line). For a
+  // single-line comment this is the only line.
   line: number;
+  // Optional first line of a multi-line region. When present it must be less
+  // than `line`; both endpoints anchor a GitHub multi-line comment.
+  startLine?: number;
   side: "RIGHT";
   body: string;
 }
@@ -90,7 +94,6 @@ export interface ReviewVerdict {
 // The models and config a review run used, captured for display on the PR.
 export interface ReviewRunInfo {
   model: ModelSelection;
-  visualizationModel?: ModelSelection;
   skills: string[];
   appendPrompt: string;
   diffCapBytes: number;
@@ -146,19 +149,39 @@ export interface SessionSnapshot {
   unreadCount: number;
 }
 
+// GitHub authentication status, surfaced to the UI to gate reviewing and shown
+// on the Settings page. Never carries the token itself.
+export interface AuthStatus {
+  ok: boolean;
+  source: "env" | "stored" | "gh-cli" | "none";
+  login?: string;
+  error?: string;
+}
+
 // Server sent events streamed to the client.
 export type ServerEvent =
   | { type: "sessions"; sessions: SessionSnapshot[] }
   | { type: "session_update"; session: SessionSnapshot }
-  | { type: "log"; sessionId: string; line: string }
+  | { type: "log"; sessionId: string; line: string; pr?: number }
+  | { type: "review_stream"; sessionId: string; pr: number; event: ChatStreamEvent }
   | { type: "notification"; sessionId: string; kind: NotificationKind; title: string; body: string }
-  | { type: "chat"; sessionId: string; event: ChatStreamEvent };
+  | { type: "chat"; sessionId: string; event: ChatStreamEvent }
+  | { type: "auth"; status: AuthStatus };
 
 export type NotificationKind = "new_pr" | "new_commit" | "verdict" | "error";
 
 // Chat streaming envelope for Implement mode. The assistant and thinking events
 // carry the FULL current text for a given message id (a snapshot, not a delta),
 // so the client can upsert by id and duplicate deliveries never double text.
+// A rendered block in a transcript. Assistant and thinking blocks are keyed by
+// the server assigned message id so full snapshots upsert in place.
+export type TranscriptBlock =
+  | { key: string; kind: "user"; text: string }
+  | { key: string; kind: "assistant"; text: string }
+  | { key: string; kind: "thinking"; text: string }
+  | { key: string; kind: "tool"; name: string; args: string; status: "running" | "done" | "error" }
+  | { key: string; kind: "error"; text: string };
+
 export type ChatStreamEvent =
   | { type: "assistant"; id: number; text: string }
   | { type: "thinking"; id: number; text: string }

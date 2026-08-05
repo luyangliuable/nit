@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { filterDiff, validRightLines, isCommentableLine } from "./diff";
+import { filterDiff, validRightLines, isCommentableLine, isCommentableRange, lineRegion } from "./diff";
 
 const SAMPLE = `diff --git a/src/app.ts b/src/app.ts
 index 111..222 100644
@@ -24,6 +24,36 @@ describe("validRightLines", () => {
   it("does not mark a line outside the hunk", () => {
     const valid = validRightLines(SAMPLE);
     expect(isCommentableLine(valid, "src/app.ts", 99)).toBe(false);
+  });
+});
+
+describe("isCommentableRange", () => {
+  it("accepts a contiguous range inside one hunk", () => {
+    const valid = validRightLines(SAMPLE);
+    expect(isCommentableRange(valid, "src/app.ts", 2, 4)).toBe(true);
+  });
+  it("rejects a range with a gap or outside the hunk", () => {
+    const valid = validRightLines(SAMPLE);
+    expect(isCommentableRange(valid, "src/app.ts", 3, 5)).toBe(false); // 5 not in diff
+  });
+  it("rejects a zero-length or inverted range", () => {
+    const valid = validRightLines(SAMPLE);
+    expect(isCommentableRange(valid, "src/app.ts", 3, 3)).toBe(false);
+    expect(isCommentableRange(valid, "src/app.ts", 4, 2)).toBe(false);
+  });
+});
+
+describe("lineRegion", () => {
+  it("covers the referenced range when start is provided", () => {
+    const region = lineRegion(SAMPLE, "src/app.ts", 4, 2);
+    const lines = region.map((l) => l.line);
+    expect(lines).toContain(2);
+    expect(lines).toContain(3);
+    expect(lines).toContain(4);
+  });
+  it("falls back to the single target line without a start", () => {
+    const region = lineRegion(SAMPLE, "src/app.ts", 3);
+    expect(region.some((l) => l.line === 3)).toBe(true);
   });
 });
 

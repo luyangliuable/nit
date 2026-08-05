@@ -6,6 +6,7 @@ import {
 import { normalizeRepo } from "@/lib/core/normalize";
 import { Session } from "./session";
 import { ChatSession } from "./chat";
+import { preloadModels } from "./pi";
 import { readJson, writeJson } from "./store";
 import { SESSIONS_FILE } from "./paths";
 import { hub } from "./events";
@@ -24,6 +25,8 @@ class SessionManager {
   load(): void {
     if (this.loaded) return;
     this.loaded = true;
+    // Warm the pi model registry so the model picker loads instantly.
+    preloadModels();
     const configs = readJson<SessionConfig[]>(SESSIONS_FILE, []);
     for (const config of configs) {
       const session = new Session(config);

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { FiCheck, FiTrash2, FiEdit2, FiRotateCcw, FiExternalLink, FiRefreshCw, FiSquare, FiChevronDown } from "react-icons/fi";
 import type { ApprovalItem, SessionSnapshot, ModelSelection, ReviewOverrides } from "@/lib/shared/types";
 import { useStore } from "@/lib/client/store";
@@ -83,6 +84,11 @@ export function VerdictView({ snapshot, item }: { snapshot: SessionSnapshot; ite
           item.error === "stopped" || item.error === "interrupted" ? (
             <div className="p-4 text-sm text-muted-foreground">
               Review {item.error}. Use Re-review to run it again.
+            </div>
+          ) : item.error === "github-auth" ? (
+            <div className="p-4 text-sm text-destructive">
+              GitHub is not authenticated, so this PR could not be reviewed.{" "}
+              <Link href="/settings" className="font-medium underline">Open Settings</Link> to sign in, then Re-review.
             </div>
           ) : (
             <div className="p-4 text-sm text-destructive">Review failed: {item.error}</div>
@@ -171,7 +177,6 @@ function ReviewInfoPanel({ item }: { item: ApprovalItem }) {
       <span>
         Model: <span className="font-medium text-foreground">{info.model.model}</span> · thinking {info.model.thinking}
       </span>
-      {info.visualizationModel && <span>Viz: {info.visualizationModel.model}</span>}
       <span>Diff cap: {Math.round(info.diffCapBytes / 1000)}KB</span>
       <span>Max attempts: {info.maxAttempts}</span>
       <span>Skills: {info.skills.length > 0 ? info.skills.map(base).join(", ") : "none"}</span>
@@ -184,10 +189,11 @@ function ReviewInfoPanel({ item }: { item: ApprovalItem }) {
 // rerun with one-off overrides. Available whether the review is ongoing or
 // finished.
 function ReReviewControls({ snapshot, item }: { snapshot: SessionSnapshot; item: ApprovalItem }) {
-  const { action } = useStore();
+  const { action, auth } = useStore();
   const id = snapshot.config.id;
   const cfg = snapshot.config;
   const reviewing = item.status === "reviewing";
+  const authOk = auth ? auth.ok : true;
   const [open, setOpen] = React.useState(false);
 
   // Override form state, seeded with the session's current values.
@@ -231,7 +237,8 @@ function ReReviewControls({ snapshot, item }: { snapshot: SessionSnapshot; item:
           variant="outline"
           size="sm"
           className="rounded-r-none"
-          disabled={reviewing}
+          disabled={reviewing || !authOk}
+          title={!authOk ? "GitHub not authenticated" : undefined}
           onClick={() => rerun()}
         >
           <FiRefreshCw className="h-3.5 w-3.5" /> Rerun
@@ -240,7 +247,7 @@ function ReReviewControls({ snapshot, item }: { snapshot: SessionSnapshot; item:
           variant="outline"
           size="icon"
           className="h-8 w-8 rounded-l-none border-l-0"
-          disabled={reviewing}
+          disabled={reviewing || !authOk}
           aria-label="Rerun with overrides"
           onClick={() => setOpen((o) => !o)}
         >
@@ -350,7 +357,8 @@ function CommentCard({
       {comment.codeContext && comment.codeContext.length > 0 && (
         <pre className="mb-2 overflow-x-auto rounded border border-border bg-muted/40 py-1.5 text-[11px] leading-relaxed">
           {comment.codeContext.map((l) => {
-            const isTarget = l.line === comment.line;
+            const isTarget =
+              l.line >= (comment.startLine ?? comment.line) && l.line <= comment.line;
             return (
               <div
                 key={l.line}

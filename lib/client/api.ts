@@ -1,4 +1,9 @@
-import type { SessionConfig, SessionSnapshot } from "@/lib/shared/types";
+import type { SessionConfig, SessionSnapshot, TranscriptBlock, AuthStatus } from "@/lib/shared/types";
+
+export interface AuthResult {
+  status: AuthStatus;
+  hasStoredToken: boolean;
+}
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -44,6 +49,16 @@ export const api = {
     if (!r.ok) return null;
     return (await json<{ html: string }>(r)).html;
   },
+  async reviewTranscript(id: string, pr: number): Promise<TranscriptBlock[]> {
+    const r = await fetch(`/api/sessions/${id}/review-stream?pr=${pr}`);
+    if (!r.ok) return [];
+    return (await json<{ blocks: TranscriptBlock[] }>(r)).blocks;
+  },
+  async logs(id: string): Promise<string[]> {
+    const r = await fetch(`/api/sessions/${id}/logs`);
+    if (!r.ok) return [];
+    return (await json<{ lines: string[] }>(r)).lines;
+  },
   async chatState(id: string): Promise<{ history: { role: string; text: string }[]; commands: { name: string; description: string }[] }> {
     const r = await fetch(`/api/sessions/${id}/chat`);
     return json(r);
@@ -77,5 +92,21 @@ export const api = {
   async models(): Promise<{ provider: string; id: string }[]> {
     const r = await fetch("/api/models");
     return (await json<{ models: { provider: string; id: string }[] }>(r)).models;
+  },
+  async authStatus(): Promise<AuthResult> {
+    const r = await fetch("/api/auth");
+    return json(r);
+  },
+  async saveToken(token: string): Promise<AuthResult> {
+    const r = await fetch("/api/auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+    return json(r);
+  },
+  async clearToken(): Promise<AuthResult> {
+    const r = await fetch("/api/auth", { method: "DELETE" });
+    return json(r);
   },
 };

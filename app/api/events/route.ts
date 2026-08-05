@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { hub } from "@/lib/server/events";
 import { manager } from "@/lib/server/manager";
+import { githubAuthStatus } from "@/lib/server/octokit";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,8 @@ export async function GET(req: NextRequest) {
 
       send({ type: "sessions", sessions: manager.list() });
       unsubscribe = hub.subscribe(send);
+      // Push current GitHub auth status once known so the UI can gate reviewing.
+      void githubAuthStatus().then((status) => send({ type: "auth", status }));
       heartbeat = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(": ping\n\n"));
