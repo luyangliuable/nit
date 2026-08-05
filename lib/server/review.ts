@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import type { SessionConfig, ReviewVerdict } from "@/lib/shared/types";
+import type { SessionConfig, ReviewVerdict, ModelSelection } from "@/lib/shared/types";
 import { filterDiff } from "@/lib/core/diff";
 import {
   buildReviewPrompt,
@@ -24,6 +24,11 @@ export interface ReviewResult {
 export async function reviewPr(
   config: SessionConfig,
   pr: PrListItem,
+  opts?: {
+    signal?: AbortSignal;
+    modelOverride?: ModelSelection;
+    onLog?: (msg: string) => void;
+  },
 ): Promise<ReviewResult> {
   const rawDiff = await prDiff(config.repo, pr.number);
   if (rawDiff === null) {
@@ -38,7 +43,7 @@ export async function reviewPr(
   }
 
   const cwd = config.localPath && config.localPath.trim() !== "" ? config.localPath : process.cwd();
-  const model = config.reviewModel ?? config.model;
+  const model = opts?.modelOverride ?? config.reviewModel ?? config.model;
 
   const prompt = buildReviewPrompt({
     repo: config.repo,
@@ -51,7 +56,15 @@ export async function reviewPr(
 
   let text: string;
   try {
-    text = await runReadOnlyPrompt({ prompt, cwd, model, skills: config.skills });
+    text = await runReadOnlyPrompt({
+      prompt,
+      cwd,
+      model,
+      skills: config.skills,
+      signal: opts?.signal,
+      label: `#${pr.number}`,
+      onLog: opts?.onLog,
+    });
   } catch (err) {
     return { diff, error: `review-run-failed: ${String(err)}` };
   }

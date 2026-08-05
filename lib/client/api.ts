@@ -1,6 +1,10 @@
 import type { SessionConfig, SessionSnapshot } from "@/lib/shared/types";
 
 async function json<T>(res: Response): Promise<T> {
+  if (!res.ok) {
+    const errorBody = await res.text();
+    throw new Error(`API Error ${res.status} (${res.statusText}): ${errorBody}`);
+  }
   return (await res.json()) as T;
 }
 

@@ -63,9 +63,22 @@ export async function runReadOnlyPrompt(params: {
   cwd: string;
   model: ModelSelection;
   skills: string[];
+  signal?: AbortSignal;
+  label?: string;
+  onLog?: (msg: string) => void;
 }): Promise<string> {
-  const { prompt, cwd, model, skills } = params;
+  const { prompt, cwd, model, skills, signal, label, onLog } = params;
   const sdk = await loadPiSdk();
+
+  // Emit progress to the server console (and optionally a session log) so we
+  // can see what each review is doing in real time.
+  const tag = label ? ` ${label}` : "";
+  const log = (msg: string) => {
+    console.log(`[review${tag}] ${msg}`);
+    onLog?.(msg);
+  };
+  const started = Date.now();
+  log(`start model=${model.model} thinking=${model.thinking}`);
 
   const loader = new sdk.DefaultResourceLoader({
     cwd,
@@ -85,19 +98,42 @@ export async function runReadOnlyPrompt(params: {
     modelRegistry: await getRegistry(),
   });
 
+  // Wire external cancellation: aborting the signal aborts the pi run so the
+  // in-flight review stops promptly.
+  if (signal) {
+    if (signal.aborted) void session.abort();
+    else signal.addEventListener("abort", () => void session.abort(), { once: true });
+  }
+
   let text = "";
   let errorMessage = "";
+  let loggedThinking = false;
+  let loggedText = false;
   const unsubscribe = session.subscribe((event: unknown) => {
     const ev = event as {
       type: string;
       assistantMessageEvent?: { type: string; delta?: string; error?: unknown; reason?: string };
+      toolName?: string;
+      isError?: boolean;
     };
     if (ev.type === "message_update" && ev.assistantMessageEvent) {
       const ame = ev.assistantMessageEvent;
-      if (ame.type === "text_delta") text += ame.delta ?? "";
+      if (ame.type === "text_delta") {
+        text += ame.delta ?? "";
+        if (!loggedText) { loggedText = true; log("writing verdict…"); }
+      }
+      if (ame.type?.startsWith("thinking") && !loggedThinking) {
+        loggedThinking = true;
+        log("thinking…");
+      }
       if (ame.type === "error") {
         errorMessage = typeof ame.error === "string" ? ame.error : JSON.stringify(ame.error);
+        log(`error ${errorMessage}`);
       }
+    } else if (ev.type === "tool_execution_start") {
+      log(`tool ${ev.toolName ?? "?"}`);
+    } else if (ev.type === "tool_execution_end") {
+      log(`tool ${ev.toolName ?? "?"} done${ev.isError ? " (error)" : ""}`);
     }
   });
 
@@ -105,6 +141,7 @@ export async function runReadOnlyPrompt(params: {
     await session.prompt(prompt, { expandPromptTemplates: false });
   } finally {
     unsubscribe();
+    log(`done in ${((Date.now() - started) / 1000).toFixed(1)}s, ${text.length} chars`);
   }
 
   // Fallback: pull text from the final assistant message if nothing streamed.

@@ -7,11 +7,23 @@ import { hub } from "./events";
 // (read, bash, edit, write), persisted as a native pi JSONL session so history
 // survives restarts and is openable by the pi CLI. Streams events to the UI
 // over SSE and supports pi slash commands via prompt template expansion.
+// Concatenate the text or thinking content of an assistant message snapshot.
+function fullContent(partial: unknown, kind: "text" | "thinking"): string {
+  const content = (partial as { content?: unknown })?.content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((c) => (c as { type?: string })?.type === kind)
+    .map((c) => (kind === "text" ? (c as { text?: string }).text : (c as { thinking?: string }).thinking) ?? "")
+    .join("");
+}
+
 export class ChatSession {
   private session: any = null;
   private unsubscribe: (() => void) | null = null;
   private slashCommands: { name: string; description: string }[] = [];
   private cwd: string;
+  // Monotonic id for the current assistant message, used to key snapshots.
+  private assistantId = 0;
 
   constructor(private config: SessionConfig) {
     this.cwd = config.localPath && config.localPath.trim() !== "" ? config.localPath : process.cwd();
@@ -54,30 +66,41 @@ export class ChatSession {
   private handleEvent(event: unknown): void {
     const ev = event as {
       type: string;
-      assistantMessageEvent?: { type: string; delta?: string };
+      message?: { role?: string };
+      assistantMessageEvent?: { type?: string; partial?: unknown };
       toolName?: string;
       toolCallId?: string;
       isError?: boolean;
+      args?: unknown;
     };
     switch (ev.type) {
-      case "message_update":
-        if (ev.assistantMessageEvent?.type === "text_delta") {
-          this.emit({ type: "text_delta", delta: ev.assistantMessageEvent.delta ?? "" });
-        } else if (ev.assistantMessageEvent?.type === "thinking_delta") {
-          this.emit({ type: "thinking_delta", delta: ev.assistantMessageEvent.delta ?? "" });
+      case "message_start":
+        if (ev.message?.role === "assistant") this.assistantId++;
+        break;
+      case "message_update": {
+        const ame = ev.assistantMessageEvent;
+        if (!ame) break;
+        if (this.assistantId === 0) this.assistantId = 1;
+        const kind = ame.type ?? "";
+        if (kind.startsWith("text")) {
+          this.emit({ type: "assistant", id: this.assistantId, text: fullContent(ame.partial, "text") });
+        } else if (kind.startsWith("thinking")) {
+          this.emit({ type: "thinking", id: this.assistantId, text: fullContent(ame.partial, "thinking") });
         }
         break;
-      case "message_start":
-        this.emit({ type: "message_start" });
+      }
+      case "tool_execution_start": {
+        let args = "";
+        try {
+          args = ev.args ? JSON.stringify(ev.args) : "";
+        } catch {
+          args = "";
+        }
+        this.emit({ type: "tool_start", toolCallId: ev.toolCallId ?? "", toolName: ev.toolName ?? "", args: args.slice(0, 400) });
         break;
-      case "message_end":
-        this.emit({ type: "message_end" });
-        break;
-      case "tool_execution_start":
-        this.emit({ type: "tool_start", toolName: ev.toolName ?? "", toolCallId: ev.toolCallId ?? "" });
-        break;
+      }
       case "tool_execution_end":
-        this.emit({ type: "tool_end", toolCallId: ev.toolCallId ?? "", isError: !!ev.isError });
+        this.emit({ type: "tool_end", toolCallId: ev.toolCallId ?? "", toolName: ev.toolName ?? "", isError: !!ev.isError });
         break;
       case "agent_end":
         this.emit({ type: "agent_end" });
@@ -94,9 +117,9 @@ export class ChatSession {
     if (!this.session) return;
     try {
       if (this.session.isStreaming) {
-        await this.session.prompt(text, { streamingBehavior: "followUp" });
+        await this.session.prompt(text, { expandPromptTemplates: true, streamingBehavior: "followUp" });
       } else {
-        await this.session.prompt(text);
+        await this.session.prompt(text, { expandPromptTemplates: true });
       }
     } catch (err) {
       this.emit({ type: "error", message: String(err) });
