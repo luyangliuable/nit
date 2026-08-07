@@ -50,7 +50,16 @@ let modelsCache: Promise<{ provider: string; id: string }[]> | null = null;
 async function computeModels(): Promise<{ provider: string; id: string }[]> {
   const registry = await getRegistry();
   const models = registry.getAvailable();
-  return models.map((m: { provider: string; id: string }) => ({ provider: m.provider, id: m.id }));
+  let list = models.map((m: { provider: string; id: string }) => ({ provider: m.provider, id: m.id }));
+  // Optional allowlist so misconfigured providers (e.g. an ANTHROPIC_API_KEY
+  // that is actually a gateway key, which makes direct models 401) can be
+  // hidden from the picker. Comma separated provider names; unset = show all.
+  const allow = (process.env.NIT_MODEL_PROVIDERS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (allow.length > 0) list = list.filter((m: { provider: string; id: string }) => allow.includes(m.provider));
+  return list;
 }
 
 // List models that have valid credentials, for the UI picker.
@@ -93,8 +102,13 @@ export async function runReadOnlyPrompt(params: {
   // Extra read only tools (e.g. the granular GitHub PR tools) the agent may
   // call in addition to the built-in read/grep/find/ls tools.
   customTools?: ToolDefinition[];
+  // Drives a tool-driven flow to completion: after each turn, if the run is not
+  // complete (e.g. coverage not met / verdict not submitted) the agent is
+  // re-prompted in the same session with reminder(). No cap; the AbortSignal is
+  // the escape hatch.
+  finalize?: { isComplete: () => Promise<boolean>; reminder: () => Promise<string>; completed?: Promise<void> };
 }): Promise<string> {
-  const { prompt, cwd, model, skills, signal, label, onLog, onStream, sessionDir, customTools } = params;
+  const { prompt, cwd, model, skills, signal, label, onLog, onStream, sessionDir, customTools, finalize } = params;
   const sdk = await loadPiSdk();
 
   // Emit progress to the server console (and optionally a session log) so we
@@ -137,6 +151,17 @@ export async function runReadOnlyPrompt(params: {
     else signal.addEventListener("abort", () => void session.abort(), { once: true });
   }
 
+  // End the run promptly once the tool-driven flow reports completion (e.g. the
+  // verdict was submitted), rather than waiting for the model to stop on its
+  // own. The resulting abort is expected and swallowed below.
+  let completedByFlow = false;
+  if (finalize?.completed) {
+    void finalize.completed.then(() => {
+      completedByFlow = true;
+      void session.abort();
+    });
+  }
+
   let text = "";
   let errorMessage = "";
   let loggedThinking = false;
@@ -176,9 +201,24 @@ export async function runReadOnlyPrompt(params: {
 
   try {
     await session.prompt(prompt, { expandPromptTemplates: false });
+    // Tool-driven flows: keep nudging in the same session until complete. Skip
+    // when the flow already completed (and aborted the run) on submit.
+    if (finalize) {
+      while (!completedByFlow && !(await finalize.isComplete())) {
+        if (signal?.aborted) break;
+        text = "";
+        loggedText = false;
+        await session.prompt(await finalize.reminder(), { expandPromptTemplates: false });
+      }
+    }
   } catch (err) {
-    onStream?.({ type: "error", message: String(err) });
-    throw err;
+    // A completion-triggered abort is expected once the verdict is submitted.
+    if (completedByFlow) {
+      log("run ended on submit");
+    } else {
+      onStream?.({ type: "error", message: String(err) });
+      throw err;
+    }
   } finally {
     unsubscribe();
     onStream?.({ type: "agent_end" });

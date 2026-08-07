@@ -12,12 +12,23 @@ import { LogTail } from "./log-tail";
 export function ReviewConsole({ sessionId, pr, runKey }: { sessionId: string; pr?: number; runKey?: string }) {
   const { subscribeReviewStream } = useStore();
   const [blocks, setBlocks] = React.useState<Block[]>([]);
+  const [streaming, setStreaming] = React.useState(false);
   const endRef = React.useRef<HTMLDivElement>(null);
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+  // Whether the view is pinned to the bottom. We only auto-scroll on new
+  // content while pinned, so scrolling up to read is never hijacked.
+  const stick = React.useRef(true);
+
+  const onScroll = React.useCallback(() => {
+    const el = scrollRef.current;
+    if (el) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  }, []);
 
   // Seed from the persisted transcript whenever the selected PR changes or a
   // new review run starts/finishes (runKey), so a rerun clears stale blocks.
   React.useEffect(() => {
     setBlocks([]);
+    setStreaming(false);
     if (pr === undefined) return;
     let cancelled = false;
     void api.reviewTranscript(sessionId, pr).then((blocks) => {
@@ -33,13 +44,15 @@ export function ReviewConsole({ sessionId, pr, runKey }: { sessionId: string; pr
     if (pr === undefined) return;
     const unsub = subscribeReviewStream(sessionId, (streamPr, ev) => {
       if (streamPr !== pr) return;
+      if (ev.type === "assistant" || ev.type === "thinking" || ev.type === "tool_start") setStreaming(true);
+      if (ev.type === "agent_end" || ev.type === "error") setStreaming(false);
       setBlocks((prev) => applyStreamEvent(prev, ev));
     });
     return unsub;
   }, [sessionId, pr, subscribeReviewStream]);
 
   React.useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end" });
+    if (stick.current) endRef.current?.scrollIntoView({ block: "end" });
   }, [blocks]);
 
   if (pr === undefined) {
@@ -52,13 +65,13 @@ export function ReviewConsole({ sessionId, pr, runKey }: { sessionId: string; pr
 
   return (
     <div className="flex h-full flex-col">
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
         {blocks.length === 0 ? (
           <div className="text-xs text-muted-foreground">
             No review activity yet. Start or re-review this PR to stream thinking, response, and tool calls.
           </div>
         ) : (
-          blocks.map((b) => <BlockView key={b.key} block={b} />)
+          blocks.map((b, i) => <BlockView key={b.key} block={b} streaming={streaming} isLast={i === blocks.length - 1} />)
         )}
         <div ref={endRef} />
       </div>

@@ -18,6 +18,13 @@ export function stateKey(repo: string, pr: number, sha: string): string {
   return `${repo}#${pr}@${sha}`;
 }
 
+// Queue (sidebar) key: one entry per PR regardless of commit sha, so a new
+// commit updates the same row instead of adding a duplicate. State history
+// stays keyed per sha via stateKey above.
+export function queueKey(repo: string, pr: number): string {
+  return `${repo}#${pr}`;
+}
+
 // Most recent COMPLETED review for a PR regardless of sha. Failed attempts
 // (no outcome) are excluded so they do not trip the gate.
 export function lastCompletedForPr(
@@ -40,16 +47,18 @@ export type GateDecision =
   | { review: true }
   | { review: false; reason: string };
 
-// Strict AND re-review gate from poll_once. A PR already reviewed is only
-// re-reviewed when there is a new head commit AND all of the bot threads are
-// resolved. A clean approve with no comments is never re-reviewed.
+// Re-review gate. A given sha is reviewed at most once. Re-review always
+// requires a NEW head commit (never same-sha); on a new commit we re-review
+// when the prior review was a clean approve, OR my review was re-requested, OR
+// all of my prior comment threads are now resolved.
 export function shouldReview(params: {
   currentSha: string;
   alreadyReviewedThisSha: boolean;
   last: StateRecord | null;
   allThreadsResolved: boolean;
+  reviewRequestedForMe: boolean;
 }): GateDecision {
-  const { currentSha, alreadyReviewedThisSha, last, allThreadsResolved } =
+  const { currentSha, alreadyReviewedThisSha, last, allThreadsResolved, reviewRequestedForMe } =
     params;
 
   if (alreadyReviewedThisSha) {
@@ -58,15 +67,20 @@ export function shouldReview(params: {
   if (!last) {
     return { review: true };
   }
-  const priorThreads = last.thread_ids?.length ?? 0;
-  if (priorThreads === 0) {
-    return { review: false, reason: "clean-approve-never-rereviewed" };
-  }
   if (currentSha === last.sha) {
+    // No new commit: never re-review, even if re-requested or resolved.
     return { review: false, reason: "no-new-commit" };
   }
-  if (!allThreadsResolved) {
-    return { review: false, reason: "threads-unresolved" };
+  // New commit present.
+  const priorThreads = last.thread_ids?.length ?? 0;
+  if (priorThreads === 0) {
+    return { review: true }; // clean approve + new commit
   }
-  return { review: true };
+  if (reviewRequestedForMe) {
+    return { review: true }; // new commit + review re-requested
+  }
+  if (allThreadsResolved) {
+    return { review: true }; // new commit + my comments addressed
+  }
+  return { review: false, reason: "new-commit-unresolved-and-not-requested" };
 }

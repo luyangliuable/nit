@@ -49,14 +49,31 @@ export function messagesToBlocks(messages: unknown[]): TranscriptBlock[] {
       continue;
     }
     if (m.role === "toolResult") {
-      // Reflect an error outcome on the matching tool block, if present.
-      if (m.isError) {
-        const b = blocks.find((x) => x.kind === "tool" && x.key === `tool${m.toolCallId ?? ""}`);
-        if (b && b.kind === "tool") b.status = "error";
+      // Attach the result and error state to the matching tool block.
+      const b = blocks.find((x) => x.kind === "tool" && x.key === `tool${m.toolCallId ?? ""}`);
+      if (b && b.kind === "tool") {
+        if (m.isError) b.status = "error";
+        const rt = contentText(m.content);
+        if (rt) b.result = rt.slice(0, 2000);
       }
     }
   }
   return blocks;
+}
+
+// Extract displayable text from a tool result (AgentToolResult or string).
+function resultText(result: unknown): string {
+  if (!result) return "";
+  if (typeof result === "string") return result.slice(0, 2000);
+  const content = (result as { content?: unknown }).content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((c) => (c as { type?: string })?.type === "text")
+      .map((c) => (c as { text?: string }).text ?? "")
+      .join("")
+      .slice(0, 2000);
+  }
+  return "";
 }
 
 function contentText(content: unknown): string {
@@ -80,6 +97,7 @@ export function createPiEventMapper(): (event: unknown) => ChatStreamEvent | nul
       toolCallId?: string;
       isError?: boolean;
       args?: unknown;
+      result?: unknown;
     };
     switch (ev.type) {
       case "message_start":
@@ -108,7 +126,13 @@ export function createPiEventMapper(): (event: unknown) => ChatStreamEvent | nul
         return { type: "tool_start", toolCallId: ev.toolCallId ?? "", toolName: ev.toolName ?? "", args: args.slice(0, 400) };
       }
       case "tool_execution_end":
-        return { type: "tool_end", toolCallId: ev.toolCallId ?? "", toolName: ev.toolName ?? "", isError: !!ev.isError };
+        return {
+          type: "tool_end",
+          toolCallId: ev.toolCallId ?? "",
+          toolName: ev.toolName ?? "",
+          isError: !!ev.isError,
+          result: resultText(ev.result),
+        };
       case "agent_end":
         return { type: "agent_end" };
       default:

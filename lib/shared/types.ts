@@ -179,14 +179,14 @@ export type TranscriptBlock =
   | { key: string; kind: "user"; text: string }
   | { key: string; kind: "assistant"; text: string }
   | { key: string; kind: "thinking"; text: string }
-  | { key: string; kind: "tool"; name: string; args: string; status: "running" | "done" | "error" }
+  | { key: string; kind: "tool"; name: string; args: string; status: "running" | "done" | "error"; result?: string }
   | { key: string; kind: "error"; text: string };
 
 export type ChatStreamEvent =
   | { type: "assistant"; id: number; text: string }
   | { type: "thinking"; id: number; text: string }
   | { type: "tool_start"; toolCallId: string; toolName: string; args: string }
-  | { type: "tool_end"; toolCallId: string; toolName: string; isError: boolean }
+  | { type: "tool_end"; toolCallId: string; toolName: string; isError: boolean; result?: string }
   | { type: "agent_end" }
   | { type: "error"; message: string };
 

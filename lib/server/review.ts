@@ -1,17 +1,17 @@
 import fs from "node:fs";
 import type { SessionConfig, ReviewVerdict, ModelSelection, ChatStreamEvent } from "@/lib/shared/types";
-import { filterDiff } from "@/lib/core/diff";
+import { filterDiff, validRightLines } from "@/lib/core/diff";
 import {
   buildReviewPrompt,
   buildVisualizationPrompt,
   extractHtmlDocument,
 } from "@/lib/core/prompt";
-import { parseVerdict } from "@/lib/core/verdict";
+import { validateSuggestion } from "@/lib/core/review-coverage";
 import { prDiff } from "./gh";
 import { runReadOnlyPrompt } from "./pi";
-import { createPrReviewTools, fetchPrOverview } from "./gh-tools";
+import { createPrReviewContext, fetchPrOverview } from "./gh-tools";
 import { prepareWorktree } from "./worktree";
-import { visualizationFile, prDir, ensureDir, rawVerdictFile } from "./paths";
+import { visualizationFile, prDir, ensureDir } from "./paths";
 import type { PrListItem } from "./gh";
 
 export interface ReviewResult {
@@ -77,61 +77,42 @@ export async function reviewPr(
     append: config.appendPrompt,
   });
 
-  // The agent pulls the exact changes on demand via these read only tools; we
-  // still keep `diff` server side for comment validation and the visualization.
-  const prTools = createPrReviewTools(config.repo, pr.number);
+  // Tool-driven review: the agent reviews every changed file (tracked) and
+  // records suggestions incrementally, validated against the diff on the spot;
+  // submit_review is gated on full coverage and produces the verdict.
+  const valid = validRightLines(diff);
+  const ctx = createPrReviewContext(config.repo, pr.number, (sug) => validateSuggestion(valid, sug));
 
-  // Retry on empty/unparseable output, up to maxAttempts, appending a
-  // corrective instruction after the first miss. This is what makes the
-  // maxAttempts config actually do something.
-  const maxAttempts = Math.max(1, config.maxAttempts || 1);
-  const corrective =
-    "\n\nIMPORTANT: Your previous reply could not be parsed. Reply with ONLY the JSON " +
-    "object described above, valid JSON, with every newline inside a string escaped as \\n. " +
-    "No prose, no explanation, no markdown code fences.";
-
-  let lastError = "invalid-verdict-json";
-  let lastText = "";
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    let text: string;
-    try {
-      text = await runReadOnlyPrompt({
-        prompt: attempt === 1 ? prompt : prompt + corrective,
-        cwd,
-        model,
-        skills: config.skills,
-        signal: opts?.signal,
-        label: `#${pr.number}${maxAttempts > 1 ? ` a${attempt}/${maxAttempts}` : ""}`,
-        onLog: opts?.onLog,
-        onStream: opts?.onStream,
-        sessionDir: opts?.sessionDir,
-        customTools: prTools,
-      });
-    } catch (err) {
-      lastError = `review-run-failed: ${String(err)}`;
-      // Do not retry a user-initiated stop.
-      if (opts?.signal?.aborted) return { diff, error: lastError };
-      continue;
-    }
-
-    const verdict = parseVerdict(text);
-    if (verdict) return { verdict, diff };
-
-    lastText = text;
-    lastError = "invalid-verdict-json";
-    opts?.onLog?.(`attempt ${attempt}/${maxAttempts} invalid-verdict-json rawLen=${text.length}`);
-    if (opts?.signal?.aborted) return { diff, error: lastError };
-  }
-
-  // Persist the last raw output so the failure can be inspected.
   try {
-    ensureDir(prDir(config.id, pr.number));
-    fs.writeFileSync(rawVerdictFile(config.id, pr.number, pr.headRefOid), lastText, "utf8");
-    opts?.onLog?.(`saved raw output to ${rawVerdictFile(config.id, pr.number, pr.headRefOid)}`);
-  } catch {
-    /* best effort */
+    await runReadOnlyPrompt({
+      prompt,
+      cwd,
+      model,
+      skills: config.skills,
+      signal: opts?.signal,
+      label: `#${pr.number}`,
+      onLog: opts?.onLog,
+      onStream: opts?.onStream,
+      sessionDir: opts?.sessionDir,
+      customTools: ctx.tools,
+      finalize: {
+        completed: ctx.completed,
+        isComplete: async () => ctx.getVerdict() !== null,
+        reminder: async () => {
+          const rem = await ctx.remaining();
+          return rem.length > 0
+            ? `You have not reviewed these files yet: ${rem.join(", ")}. Review each with next_pr_file()/pr_file_diff(path), add any suggestions, then call submit_review().`
+            : "All files are reviewed. Add any final suggestions, then call submit_review({ decision, summary }) to finish.";
+        },
+      },
+    });
+  } catch (err) {
+    return { diff, error: `review-run-failed: ${String(err)}` };
   }
-  return { diff, error: lastError };
+
+  const verdict = ctx.getVerdict();
+  if (verdict) return { verdict, diff };
+  return { diff, error: opts?.signal?.aborted ? "stopped" : "no-verdict-submitted" };
 }
 
 // Generate the HTML visualization for a PR and save it, returning the file path

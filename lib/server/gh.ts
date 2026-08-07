@@ -12,10 +12,13 @@ export interface PrListItem {
   mergedAt: string | null;
   author: { login: string };
   createdAt: string;
+  // Users/teams currently requested to review. gh returns a mix of
+  // { login } (users) and { name/slug } (teams); we only match user logins.
+  reviewRequests?: { login?: string; name?: string; slug?: string }[];
 }
 
 const PR_FIELDS =
-  "number,title,body,headRefOid,isDraft,mergedAt,author,createdAt";
+  "number,title,body,headRefOid,isDraft,mergedAt,author,createdAt,reviewRequests";
 
 export async function ghAuthOk(): Promise<boolean> {
   const r = await exec("gh", ["auth", "status"]);
