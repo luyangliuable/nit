@@ -16,7 +16,9 @@ export function buildReviewPrompt(params: {
     ? "You are in a checkout of the repository at this PR's head commit, so use your read/grep/find/ls tools to explore ANY committed file for context, not just changed files. The checkout contains ONLY the repository's committed files: installed dependencies (.venv, node_modules, vendored packages) are NOT present, so reason about third-party libraries from their usage and public docs rather than trying to read their source."
     : "No local checkout is available, so review from the diffs and PR context alone.";
   parts.push(`You are reviewing GitHub pull request #${pr} in ${repo}
-(https://github.com/${repo}/pull/${pr}). Apply the loaded review skills.
+(https://github.com/${repo}/pull/${pr}).
+
+FIRST, before reviewing any file: if your system prompt lists an <available_skills> section, you MUST use the read tool to open every listed skill file (at its stated location) in full and follow its guidance for the rest of this review. submit_review is blocked until you have read them.
 
 ${explore}
 

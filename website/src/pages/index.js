@@ -21,7 +21,7 @@ function HomepageHeader() {
         <p className={styles.heroTagline}>{siteConfig.tagline}</p>
         <p className={styles.heroSub}>
           Watch a repository, review every incoming pull request, and approve with
-          a button. Then fix it with the pi coding agent, all in one place.
+          a button. Then fix it with the AI coding agent, all in one place.
         </p>
         <div className={styles.buttons}>
           <Link className="button button--primary button--lg" to="/docs/">

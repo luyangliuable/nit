@@ -41,4 +41,12 @@ describe("canSubmit", () => {
   it("allows suggestions with items", () => {
     expect(canSubmit({ remaining: [], decision: "suggestions", suggestionCount: 3 }).ok).toBe(true);
   });
+  it("blocks when required context is unread, before coverage", () => {
+    const r = canSubmit({ remaining: [], decision: "approve", suggestionCount: 0, unreadRequired: ["/skills/SKILL.md"] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toContain("/skills/SKILL.md");
+  });
+  it("allows once required context is read", () => {
+    expect(canSubmit({ remaining: [], decision: "approve", suggestionCount: 0, unreadRequired: [] }).ok).toBe(true);
+  });
 });

@@ -28,14 +28,21 @@ export function validateSuggestion(valid: Set<string>, s: SuggestionInput): Vali
 
 export type SubmitCheck = { ok: true } | { ok: false; reason: string };
 
-// Gate submit_review: every file must be reviewed and decision must match the
-// presence of suggestions.
+// Gate submit_review: required context (skills/docs) must be read, every file
+// must be reviewed, and the decision must match the presence of suggestions.
 export function canSubmit(params: {
   remaining: string[];
   decision: string;
   suggestionCount: number;
+  unreadRequired?: string[];
 }): SubmitCheck {
-  const { remaining, decision, suggestionCount } = params;
+  const { remaining, decision, suggestionCount, unreadRequired = [] } = params;
+  if (unreadRequired.length > 0) {
+    return {
+      ok: false,
+      reason: `you must read the loaded context first with the read tool. Not yet read: ${unreadRequired.join(", ")}`,
+    };
+  }
   if (remaining.length > 0) {
     return { ok: false, reason: `not all files reviewed. Remaining: ${remaining.join(", ")}` };
   }

@@ -43,6 +43,52 @@ function patchText(f: PrFile): string {
   return f.patch;
 }
 
+function stripDiffPath(path: string): string {
+  return path.replace(/^[ab]\//, "");
+}
+
+function parseChangedFiles(diff: string): PrFile[] {
+  const files: (PrFile & { lines: string[] })[] = [];
+  let cur: (PrFile & { lines: string[] }) | null = null;
+  const flush = () => {
+    if (!cur) return;
+    cur.patch = cur.lines.join("\n");
+    files.push(cur);
+    cur = null;
+  };
+
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("diff --git ")) {
+      flush();
+      const parts = line.split(/\s+/);
+      cur = { filename: stripDiffPath(parts[3] ?? ""), status: "modified", additions: 0, deletions: 0, lines: [line] };
+      const oldPath = stripDiffPath(parts[2] ?? "");
+      if (oldPath && oldPath !== cur.filename) cur.previous_filename = oldPath;
+      continue;
+    }
+    if (!cur) continue;
+    cur.lines.push(line);
+    if (line.startsWith("new file mode ")) cur.status = "added";
+    else if (line.startsWith("deleted file mode ")) cur.status = "removed";
+    else if (line.startsWith("rename from ")) {
+      cur.status = "renamed";
+      cur.previous_filename = line.slice("rename from ".length);
+    } else if (line.startsWith("rename to ")) {
+      cur.status = "renamed";
+      cur.filename = line.slice("rename to ".length);
+    }
+    if (line.startsWith("+++ ")) {
+      const p = stripDiffPath(line.slice(4).split(/\s+/)[0] ?? "");
+      if (p !== "/dev/null") cur.filename = p;
+    }
+    if (line.startsWith("+") && !line.startsWith("+++")) cur.additions++;
+    else if (line.startsWith("-") && !line.startsWith("---")) cur.deletions++;
+  }
+
+  flush();
+  return sortFiles(files.map(({ lines: _lines, ...file }) => file));
+}
+
 export interface PrReviewContext {
   tools: ToolDefinition[];
   manifest(): Promise<string>;
@@ -51,21 +97,35 @@ export interface PrReviewContext {
   // Resolves as soon as a verdict is submitted, so the caller can end the pi
   // run promptly instead of waiting for the model to stop on its own.
   completed: Promise<void>;
+  // Files (absolute paths) the agent MUST read before submit_review is allowed.
+  // Set once the resource loader reports which skills/docs were loaded.
+  setRequiredReads(paths: string[]): void;
+  // Record that the agent read a file (absolute path), toward the gate.
+  markRead(path: string): void;
+  // Required files not yet read, for reminders and the submit gate.
+  unreadRequired(): string[];
 }
 
 export function createPrReviewContext(
   repo: string,
   pr: number,
+  reviewDiff: string,
   validate: (s: SuggestionInput) => Validation,
 ): PrReviewContext {
   const [owner, name] = repo.split("/");
   let filesCache: Promise<PrFile[]> | null = null;
   const files = () =>
-    (filesCache ??= getOctokit()
-      .then((o) => o.paginate(o.rest.pulls.listFiles, { owner, repo: name, pull_number: pr, per_page: 100 }))
-      .then((fs) => sortFiles(fs as PrFile[])));
+    (filesCache ??= reviewDiff.trim()
+      ? Promise.resolve(parseChangedFiles(reviewDiff))
+      : getOctokit()
+        .then((o) => o.paginate(o.rest.pulls.listFiles, { owner, repo: name, pull_number: pr, per_page: 100 }))
+        .then((fs) => sortFiles(fs as PrFile[])));
   const visited = new Set<string>();
   const suggestions: ReviewComment[] = [];
+  // Absolute paths that must be read before submitting, and those read so far.
+  const requiredReads = new Set<string>();
+  const readFiles = new Set<string>();
+  const unreadRequired = (): string[] => [...requiredReads].filter((p) => !readFiles.has(p));
   let verdict: ReviewVerdict | null = null;
   let markComplete!: () => void;
   const completed = new Promise<void>((resolve) => (markComplete = resolve));
@@ -151,7 +211,7 @@ export function createPrReviewContext(
       summary: Type.String({ description: '1-2 sentences. For approve, start with "lgtm".' }),
     }),
     execute: async (_id, v: { decision: "approve" | "suggestions"; summary: string }): Promise<TextResult> => {
-      const check = canSubmit({ remaining: await remaining(), decision: v.decision, suggestionCount: suggestions.length });
+      const check = canSubmit({ remaining: await remaining(), decision: v.decision, suggestionCount: suggestions.length, unreadRequired: unreadRequired() });
       if (!check.ok) return text(`cannot submit: ${check.reason}`);
       verdict = { decision: v.decision, summary: v.summary, comments: suggestions };
       markComplete();
@@ -159,7 +219,19 @@ export function createPrReviewContext(
     },
   };
 
-  return { tools: [fileDiff, status, nextFile, addSuggestion, submit], manifest, remaining, getVerdict: () => verdict, completed };
+  return {
+    tools: [fileDiff, status, nextFile, addSuggestion, submit],
+    manifest,
+    remaining,
+    getVerdict: () => verdict,
+    completed,
+    setRequiredReads: (paths: string[]) => {
+      requiredReads.clear();
+      for (const p of paths) requiredReads.add(p);
+    },
+    markRead: (p: string) => readFiles.add(p),
+    unreadRequired,
+  };
 }
 
 // Front-loadable high level overview (metadata, commits, prior reviews/comments).

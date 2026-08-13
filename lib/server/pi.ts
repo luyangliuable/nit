@@ -96,6 +96,14 @@ export async function runReadOnlyPrompt(params: {
   label?: string;
   onLog?: (msg: string) => void;
   onStream?: (event: ChatStreamEvent) => void;
+  // Called once after the resource loader resolves, with the absolute file
+  // paths of every skill that pi loaded (empty when none). Lets the caller gate
+  // the run on the model actually reading the loaded skills.
+  onSkillsLoaded?: (skillFilePaths: string[]) => void;
+  // Called after each tool finishes (name, raw args, whether it errored) so the
+  // caller can observe read/grep/etc. calls (e.g. to track which files the
+  // model has read toward a required-reads gate).
+  onToolExecuted?: (name: string, args: unknown, isError: boolean) => void;
   // When set, the review conversation persists to this dir as a pi JSONL
   // session so the full transcript survives restarts and is CLI openable.
   sessionDir?: string;
@@ -108,7 +116,7 @@ export async function runReadOnlyPrompt(params: {
   // the escape hatch.
   finalize?: { isComplete: () => Promise<boolean>; reminder: () => Promise<string>; completed?: Promise<void> };
 }): Promise<string> {
-  const { prompt, cwd, model, skills, signal, label, onLog, onStream, sessionDir, customTools, finalize } = params;
+  const { prompt, cwd, model, skills, signal, label, onLog, onStream, onSkillsLoaded, onToolExecuted, sessionDir, customTools, finalize } = params;
   const sdk = await loadPiSdk();
 
   // Emit progress to the server console (and optionally a session log) so we
@@ -127,6 +135,17 @@ export async function runReadOnlyPrompt(params: {
     additionalSkillPaths: skills,
   });
   await loader.reload();
+
+  // Surface exactly what pi loaded so a silent skill miss (bad path, missing
+  // description frontmatter, name/dir mismatch) is visible in the console, and
+  // hand the resolved skill file paths to the caller for gating.
+  const loaded = loader.getSkills();
+  const loadedSkills = (loaded?.skills ?? []) as { name: string; filePath: string }[];
+  log(`skills loaded=${loadedSkills.length}${loadedSkills.length ? ` names=[${loadedSkills.map((s) => s.name).join(", ")}]` : ""}`);
+  for (const d of (loaded?.diagnostics ?? []) as { type: string; message: string; path?: string }[]) {
+    log(`skill ${d.type}: ${d.message}${d.path ? ` (${d.path})` : ""}`);
+  }
+  onSkillsLoaded?.(loadedSkills.map((s) => s.filePath));
 
   const { session } = await sdk.createAgentSession({
     cwd,
@@ -166,6 +185,9 @@ export async function runReadOnlyPrompt(params: {
   let errorMessage = "";
   let loggedThinking = false;
   let loggedText = false;
+  // Remember tool-call args by id at start so we can report them on completion
+  // (the end event carries the result, not the original args).
+  const pendingToolArgs = new Map<string, unknown>();
   const mapEvent = onStream ? createPiEventMapper() : null;
   const unsubscribe = session.subscribe((event: unknown) => {
     if (mapEvent) {
@@ -176,6 +198,8 @@ export async function runReadOnlyPrompt(params: {
       type: string;
       assistantMessageEvent?: { type: string; delta?: string; error?: unknown; reason?: string };
       toolName?: string;
+      toolCallId?: string;
+      args?: unknown;
       isError?: boolean;
     };
     if (ev.type === "message_update" && ev.assistantMessageEvent) {
@@ -193,9 +217,13 @@ export async function runReadOnlyPrompt(params: {
         log(`error ${errorMessage}`);
       }
     } else if (ev.type === "tool_execution_start") {
+      if (ev.toolCallId) pendingToolArgs.set(ev.toolCallId, ev.args);
       log(`tool ${ev.toolName ?? "?"}`);
     } else if (ev.type === "tool_execution_end") {
       log(`tool ${ev.toolName ?? "?"} done${ev.isError ? " (error)" : ""}`);
+      const args = ev.toolCallId ? pendingToolArgs.get(ev.toolCallId) : undefined;
+      if (ev.toolCallId) pendingToolArgs.delete(ev.toolCallId);
+      onToolExecuted?.(ev.toolName ?? "", args, !!ev.isError);
     }
   });
 

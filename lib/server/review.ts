@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import type { SessionConfig, ReviewVerdict, ModelSelection, ChatStreamEvent } from "@/lib/shared/types";
 import { filterDiff, validRightLines } from "@/lib/core/diff";
 import {
@@ -81,7 +82,7 @@ export async function reviewPr(
   // records suggestions incrementally, validated against the diff on the spot;
   // submit_review is gated on full coverage and produces the verdict.
   const valid = validRightLines(diff);
-  const ctx = createPrReviewContext(config.repo, pr.number, (sug) => validateSuggestion(valid, sug));
+  const ctx = createPrReviewContext(config.repo, pr.number, rawDiff, (sug) => validateSuggestion(valid, sug));
 
   try {
     await runReadOnlyPrompt({
@@ -95,10 +96,24 @@ export async function reviewPr(
       onStream: opts?.onStream,
       sessionDir: opts?.sessionDir,
       customTools: ctx.tools,
+      // Force the model to actually read the loaded skills before it can submit:
+      // register them as required reads, and mark each read tool call against
+      // that gate (resolving relative paths against the review cwd).
+      onSkillsLoaded: (paths) => ctx.setRequiredReads(paths),
+      onToolExecuted: (name, args, isError) => {
+        if (isError || name !== "read") return;
+        const p = (args as { path?: unknown } | undefined)?.path;
+        if (typeof p !== "string" || p.trim() === "") return;
+        ctx.markRead(path.resolve(cwd, p));
+      },
       finalize: {
         completed: ctx.completed,
         isComplete: async () => ctx.getVerdict() !== null,
         reminder: async () => {
+          const unread = ctx.unreadRequired();
+          if (unread.length > 0) {
+            return `Before anything else you MUST read the loaded skill/context file(s) in full with the read tool: ${unread.join(", ")}. Read them, follow their guidance, then continue reviewing and call submit_review().`;
+          }
           const rem = await ctx.remaining();
           return rem.length > 0
             ? `You have not reviewed these files yet: ${rem.join(", ")}. Review each with next_pr_file()/pr_file_diff(path), add any suggestions, then call submit_review().`
