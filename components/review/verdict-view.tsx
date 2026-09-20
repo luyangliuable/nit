@@ -3,9 +3,10 @@
 import * as React from "react";
 import Link from "next/link";
 import { FiCheck, FiTrash2, FiEdit2, FiRotateCcw, FiExternalLink, FiRefreshCw, FiSquare, FiChevronDown } from "react-icons/fi";
-import type { ApprovalItem, SessionSnapshot, ModelSelection, ReviewOverrides } from "@/lib/shared/types";
+import type { ApprovalItem, SessionSnapshot, ModelSelection, ReviewOverrides, ChangeVisualization } from "@/lib/shared/types";
 import { useStore } from "@/lib/client/store";
 import { api } from "@/lib/client/api";
+import { ChangeVisualizationView } from "./change-visualization";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { Input } from "../ui/input";
@@ -18,32 +19,18 @@ import { toast } from "sonner";
 export function VerdictView({ snapshot, item }: { snapshot: SessionSnapshot; item: ApprovalItem }) {
   const { action } = useStore();
   const id = snapshot.config.id;
-  const [html, setHtml] = React.useState<string | null>(null);
+  const [viz, setViz] = React.useState<ChangeVisualization | null>(null);
   const [busy, setBusy] = React.useState(false);
-  const [vizHeight, setVizHeight] = React.useState<number>();
-  const iframeRef = React.useRef<HTMLIFrameElement>(null);
   const prUrl = `https://github.com/${snapshot.config.repo}/pull/${item.pr}`;
 
+  // Re-fetch whenever the item gains a visualization or is regenerated
+  // (updatedAt changes on completion). Charts follow the app theme on their own.
   React.useEffect(() => {
-    setHtml(null);
-    setVizHeight(undefined);
+    setViz(null);
     if (item.hasVisualization) {
-      void api.visualization(id, item.pr, item.sha).then(setHtml);
+      void api.visualization(id, item.pr, item.sha).then(setViz);
     }
-  }, [id, item.pr, item.sha, item.hasVisualization]);
-
-  // Size the sandboxed iframe to its own content instead of a fixed height.
-  // allow-same-origin lets the parent read the document height; scripts stay
-  // disabled so the model generated HTML remains inert.
-  const measureViz = React.useCallback(() => {
-    const doc = iframeRef.current?.contentDocument;
-    if (!doc) return;
-    const h = Math.max(
-      doc.documentElement?.scrollHeight ?? 0,
-      doc.body?.scrollHeight ?? 0,
-    );
-    if (h > 0) setVizHeight(h + 2);
-  }, []);
+  }, [id, item.pr, item.sha, item.hasVisualization, item.updatedAt]);
 
   const terminal = item.status === "approved" || item.status === "posted" || item.status === "dismissed";
   const keptCount = item.comments.filter((c) => c.status !== "deleted").length;
@@ -54,6 +41,13 @@ export function VerdictView({ snapshot, item }: { snapshot: SessionSnapshot; ite
     setBusy(false);
     if (res.error) toast.error(res.error);
     else toast.success(okMsg);
+  }
+
+  async function regenerate() {
+    // Clear locally so the incoming charts are not confused with the old ones.
+    setViz(null);
+    const res = await action(id, { action: "regenerate_visualization", key: item.key });
+    if (res.error) toast.error(res.error);
   }
 
   return (
@@ -104,23 +98,32 @@ export function VerdictView({ snapshot, item }: { snapshot: SessionSnapshot; ite
               <p className="text-sm">{item.summary}</p>
             </div>
 
-            {html && (
-              <div className="overflow-hidden rounded-lg border border-border">
-                <div className="border-b border-border bg-secondary/40 px-3 py-1.5 text-xs font-medium text-muted-foreground">
-                  Change visualization
-                </div>
-                <iframe
-                  ref={iframeRef}
-                  title={`PR ${item.pr} visualization`}
-                  sandbox="allow-same-origin"
-                  srcDoc={html}
-                  onLoad={measureViz}
-                  scrolling="no"
-                  style={{ height: vizHeight ? `${vizHeight}px` : undefined }}
-                  className="block w-full bg-white"
-                />
+            <div className="overflow-hidden rounded-lg border border-border">
+              <div className="flex items-center justify-between border-b border-border bg-secondary/40 px-3 py-1.5">
+                <span className="text-xs font-medium text-muted-foreground">Change visualization</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1.5 px-2 text-xs"
+                  disabled={item.visualizationBusy}
+                  onClick={() => void regenerate()}
+                >
+                  <FiRefreshCw className={item.visualizationBusy ? "h-3 w-3 animate-spin" : "h-3 w-3"} />
+                  {item.visualizationBusy ? "Generating..." : "Regenerate"}
+                </Button>
               </div>
-            )}
+              {viz ? (
+                <ChangeVisualizationView viz={viz} />
+              ) : item.visualizationBusy ? (
+                <div className="p-4 text-xs text-muted-foreground">Generating charts from the diff...</div>
+              ) : item.visualizationError ? (
+                <div className="p-4 text-xs text-destructive">Visualization failed: {item.visualizationError}</div>
+              ) : (
+                <div className="p-4 text-xs text-muted-foreground">
+                  No visualization yet. Use Regenerate to build charts from this diff.
+                </div>
+              )}
+            </div>
 
             {item.comments.length > 0 && (
               <div className="space-y-2">

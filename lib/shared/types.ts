@@ -137,6 +137,9 @@ export interface ApprovalItem {
   summary: string;
   comments: QueuedComment[];
   hasVisualization: boolean;
+  // True while a (re)generation run is in flight, so the UI can show progress.
+  visualizationBusy?: boolean;
+  visualizationError?: string;
   error?: string;
 }
 
@@ -226,4 +229,53 @@ export function defaultSessionConfig(id: string, name: string): SessionConfig {
     notifyOnVerdict: true,
     sound: false,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Change visualization
+//
+// A structured, theme aware description of what a pull request changes. It is
+// deliberately diagrams, charts and tables only: there is no free form prose
+// field, so the renderer can never show a wall of text. The model produces this
+// JSON and the client renders it with the app's own colors.
+// ---------------------------------------------------------------------------
+
+export type VizTone = "neutral" | "add" | "del" | "warning" | "critical";
+
+export interface VizStat {
+  label: string;
+  value: number;
+  unit?: string;
+  tone?: VizTone;
+}
+
+export interface VizDatum {
+  label: string;
+  value: number;
+  tone?: VizTone;
+}
+
+export interface VizStackRow {
+  label: string;
+  values: number[];
+  tone?: VizTone;
+}
+
+export interface VizBlockBase {
+  // Short header for the panel, e.g. a metric name or dimension. Not prose.
+  title?: string;
+}
+
+export type VizBlock =
+  | (VizBlockBase & { kind: "stats"; stats: VizStat[] })
+  | (VizBlockBase & { kind: "bar"; unit?: string; data: VizDatum[] })
+  | (VizBlockBase & { kind: "donut"; unit?: string; data: VizDatum[] })
+  | (VizBlockBase & { kind: "treemap"; unit?: string; data: VizDatum[] })
+  | (VizBlockBase & { kind: "stacked"; unit?: string; series: string[]; data: VizStackRow[] })
+  | (VizBlockBase & { kind: "heatmap"; columns: string[]; rows: string[]; values: number[][]; legend?: [string, string] })
+  | (VizBlockBase & { kind: "table"; columns: string[]; rows: string[][] });
+
+export interface ChangeVisualization {
+  title?: string;
+  blocks: VizBlock[];
 }

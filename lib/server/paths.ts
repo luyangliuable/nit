@@ -38,7 +38,7 @@ export function prDir(id: string, pr: number): string {
   return path.join(sessionDir(id), `pr-${pr}`);
 }
 export function visualizationFile(id: string, pr: number, sha: string): string {
-  return path.join(prDir(id, pr), `visualization-${sha.slice(0, 12)}.html`);
+  return path.join(prDir(id, pr), `visualization-${sha.slice(0, 12)}.json`);
 }
 // Raw model output saved when verdict parsing fails, for debugging.
 export function rawVerdictFile(id: string, pr: number, sha: string): string {
