@@ -29,6 +29,13 @@ dist
 build
 target
 
+# electron-builder resources live in build/ and must stay tracked
+!build/
+!build/**
+
+# Electron packaging output
+release
+
 # Lockfiles pin an internal registry; resolve fresh from the public npm
 package-lock.json
 **/package-lock.json

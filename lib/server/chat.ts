@@ -3,6 +3,7 @@ import { resolveModel, getAuth, getRegistry } from "./pi";
 import { loadPiSdk } from "./pi-sdk";
 import { createPiEventMapper } from "./pi-stream";
 import { hub } from "./events";
+import { ensureWorkspaceRoot } from "./paths";
 
 // Implement mode interactive session. Wraps a pi AgentSession with coding tools
 // (read, bash, edit, write), persisted as a native pi JSONL session so history
@@ -17,7 +18,7 @@ export class ChatSession {
   private mapEvent = createPiEventMapper();
 
   constructor(private config: SessionConfig) {
-    this.cwd = config.localPath && config.localPath.trim() !== "" ? config.localPath : process.cwd();
+    this.cwd = config.localPath && config.localPath.trim() !== "" ? config.localPath : ensureWorkspaceRoot();
   }
 
   private emit(event: ChatStreamEvent): void {

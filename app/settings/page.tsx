@@ -119,7 +119,7 @@ export default function SettingsPage() {
 
   return (
     <div className="flex h-screen flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
+      <header className="app-titlebar flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
         <Link href="/" aria-label="Back">
           <Button variant="ghost" size="icon">
             <FiArrowLeft className="h-4 w-4" />

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { exec } from "./exec";
-import { repoCloneDir, repoWorktreeDir, ensureDir, DATA_DIR } from "./paths";
+import { repoCloneDir, repoWorktreeDir, ensureDir, DATA_DIR, ensureWorkspaceRoot } from "./paths";
 
 // Manages one shared git clone per repo plus a per-PR worktree checked out at
 // the PR head. Worktrees share the shared clone's object store, so we never
@@ -43,7 +43,7 @@ async function ensureClone(repo: string): Promise<string> {
   ensureDir(DATA_DIR);
   fs.rmSync(dir, { recursive: true, force: true });
   const url = `https://github.com/${repo}.git`;
-  const r = await git(process.cwd(), ["clone", url, dir]);
+  const r = await git(ensureWorkspaceRoot(), ["clone", url, dir]);
   if (r.code !== 0) throw new Error(`clone failed: ${r.stderr.trim()}`);
   return dir;
 }

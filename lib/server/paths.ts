@@ -3,8 +3,21 @@ import fs from "node:fs";
 
 // All persisted data lives under data/ at the project root, mirroring the
 // pr-review-bot layout (state.json plus daily logs) but scoped per session.
+//
+// NIT_DATA_DIR overrides the location. The Electron desktop app points it at
+// the per-user application support directory because the packaged bundle is
+// read-only and must never be written to.
 
-export const DATA_DIR = path.join(process.cwd(), "data");
+export const DATA_DIR = process.env.NIT_DATA_DIR?.trim()
+  ? path.resolve(process.env.NIT_DATA_DIR)
+  : path.join(process.cwd(), "data");
+
+// Working directory used when a workspace has no explicit local clone. Falls
+// back to process.cwd() in development, and to a writable user directory in
+// the packaged app where process.cwd() is inside the read-only bundle.
+export const WORKSPACE_ROOT = process.env.NIT_WORKSPACE_DIR?.trim()
+  ? path.resolve(process.env.NIT_WORKSPACE_DIR)
+  : process.cwd();
 export const SESSIONS_FILE = path.join(DATA_DIR, "sessions.json");
 // App wide (not per session) config, e.g. a stored GitHub token.
 export const APP_CONFIG_FILE = path.join(DATA_DIR, "app-config.json");
@@ -40,6 +53,12 @@ export function reviewSessionDir(id: string, pr: number): string {
 
 export function ensureDir(dir: string): void {
   fs.mkdirSync(dir, { recursive: true });
+}
+
+// Best-effort writable workspace root, creating it on first use.
+export function ensureWorkspaceRoot(): string {
+  ensureDir(WORKSPACE_ROOT);
+  return WORKSPACE_ROOT;
 }
 
 // Managed git clones, shared across sessions/PRs of the same repo. One clone per
