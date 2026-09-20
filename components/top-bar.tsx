@@ -18,7 +18,7 @@ export function TopBar() {
   const totalUnread = sessions.reduce((sum, s) => sum + s.unreadCount, 0);
 
   return (
-    <header className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
+    <header className="app-titlebar flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
       <div className="flex items-center gap-3">
         <Logo className="text-lg" />
         <span className="text-xs text-muted-foreground">PR centric coding agent</span>

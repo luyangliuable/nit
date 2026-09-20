@@ -148,3 +148,20 @@
     @apply border border-border px-2 py-1 text-left;
   }
 }
+
+/*
+  Desktop chrome. In the Electron build the macOS title bar is hidden and the
+  traffic lights float over the app header. Reserve room for them on the left
+  and let the header drag the window, while keeping controls clickable.
+*/
+html[data-desktop="mac"] .app-titlebar {
+  padding-left: 5rem;
+  -webkit-app-region: drag;
+  -webkit-user-select: none;
+  user-select: none;
+}
+html[data-desktop="mac"] .app-titlebar button,
+html[data-desktop="mac"] .app-titlebar a,
+html[data-desktop="mac"] .app-titlebar input {
+  -webkit-app-region: no-drag;
+}

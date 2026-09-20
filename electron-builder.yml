@@ -1,0 +1,34 @@
+appId: com.luyangliuable.nit
+productName: nit
+copyright: Copyright © 2025 nit
+
+directories:
+  output: release
+  buildResources: build
+
+# Only the Electron shell lives inside the asar. The Next.js standalone server
+# (with its own node_modules and native binaries) is copied unpacked by the
+# afterPack hook, because electron-builder's extraResources filter always drops
+# a top-level node_modules directory.
+files:
+  - electron/**/*
+  - package.json
+  - "!node_modules/**/*"
+
+afterPack: scripts/after-pack.cjs
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch:
+        - arm64
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: true
+
+dmg:
+  title: nit
+  artifactName: nit-${version}-build.${env.BUILD_NUMBER}-${arch}.${ext}

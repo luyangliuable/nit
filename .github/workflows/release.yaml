@@ -1,0 +1,65 @@
+name: Release
+
+# Every push to main cuts a rolling macOS release: build, sign, notarize, and
+# publish a DMG with an auto-generated changelog. Each build is tagged
+# v<version>-build.<run_number> so GitHub can diff notes against the last one.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: true
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Use public npm registry
+        run: echo 'registry=https://registry.npmjs.org/' > .npmrc
+
+      - name: Install
+        run: npm install --no-audit --no-fund
+
+      - name: Resolve base version
+        run: echo "VERSION=$(node -p 'require("./package.json").version')" >> "$GITHUB_ENV"
+
+      - name: Build standalone bundle
+        run: npm run desktop:build
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+
+      - name: Package, sign and notarize DMG
+        run: npx electron-builder --mac --arm64 --publish never
+        env:
+          # Drives the DMG artifact name (nit-<version>-build.<n>-arm64.dmg).
+          BUILD_NUMBER: ${{ github.run_number }}
+          # Developer ID Application certificate, base64 of the .p12 export.
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          # Apple notarization credentials (app-specific password).
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Publish rolling release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}-build.${{ github.run_number }}
+          name: v${{ env.VERSION }}-build.${{ github.run_number }}
+          generate_release_notes: true
+          make_latest: true
+          files: release/*.dmg
+          fail_on_unmatched_files: true

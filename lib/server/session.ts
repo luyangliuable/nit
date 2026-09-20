@@ -37,7 +37,7 @@ import { reviewSemaphore } from "./semaphore";
 import { SessionLogger } from "./logger";
 import { hub } from "./events";
 import { readJson, writeJson } from "./store";
-import { stateFile, sessionDir, visualizationFile, reviewSessionDir } from "./paths";
+import { stateFile, sessionDir, visualizationFile, reviewSessionDir, WORKSPACE_ROOT } from "./paths";
 
 type Queue = Record<string, ApprovalItem>;
 
@@ -149,7 +149,7 @@ export class Session {
   // Full review transcript (thinking, response, tool calls) for a PR, read from
   // the persisted pi session so it survives restarts and re-selection.
   reviewTranscript(pr: number): Promise<TranscriptBlock[]> {
-    const cwd = this.config.localPath?.trim() ? this.config.localPath : process.cwd();
+    const cwd = this.config.localPath?.trim() ? this.config.localPath : WORKSPACE_ROOT;
     return readReviewTranscript(reviewSessionDir(this.config.id, pr), cwd);
   }
 

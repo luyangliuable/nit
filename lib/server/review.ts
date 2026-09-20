@@ -13,7 +13,7 @@ import { prDiff } from "./gh";
 import { runReadOnlyPrompt } from "./pi";
 import { createPrReviewContext, fetchPrOverview } from "./gh-tools";
 import { prepareWorktree } from "./worktree";
-import { visualizationFile, prDir, ensureDir } from "./paths";
+import { visualizationFile, prDir, ensureDir, WORKSPACE_ROOT, ensureWorkspaceRoot } from "./paths";
 import { resolveAppendRequiredContext } from "./required-context";
 import type { PrListItem } from "./gh";
 
@@ -61,7 +61,7 @@ export async function reviewPr(
   // the agent can explore the whole repo with its native read/grep/find/ls
   // tools. Fall back to the configured cwd if the checkout fails.
   const localPath = config.localPath && config.localPath.trim() !== "" ? config.localPath : undefined;
-  let cwd = localPath ?? process.cwd();
+  let cwd = localPath ?? ensureWorkspaceRoot();
   try {
     cwd = await prepareWorktree(config.repo, pr.number, pr.headRefOid, localPath);
   } catch (err) {
@@ -95,7 +95,7 @@ export async function reviewPr(
     title: pr.title,
     overview,
     changedFiles,
-    hasCheckout: cwd !== process.cwd(),
+    hasCheckout: cwd !== WORKSPACE_ROOT,
     append: config.appendPrompt,
   });
 
@@ -168,7 +168,7 @@ export async function generateVisualization(
   diff: string,
 ): Promise<{ path?: string; error?: string }> {
   if (!diff) return { error: "no-diff" };
-  const cwd = config.localPath && config.localPath.trim() !== "" ? config.localPath : process.cwd();
+  const cwd = config.localPath && config.localPath.trim() !== "" ? config.localPath : ensureWorkspaceRoot();
   // Always visualize with the review model to keep configuration simple.
   const model = config.reviewModel ?? config.model;
 
