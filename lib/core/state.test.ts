@@ -25,31 +25,36 @@ describe("lastCompletedForPr", () => {
 });
 
 describe("shouldReview", () => {
+  const base = { reviewRequestedForMe: false };
   it("reviews a never seen PR", () => {
-    expect(shouldReview({ currentSha: "x", alreadyReviewedThisSha: false, last: null, allThreadsResolved: false }).review).toBe(true);
+    expect(shouldReview({ ...base, currentSha: "x", alreadyReviewedThisSha: false, last: null, allThreadsResolved: false }).review).toBe(true);
   });
   it("skips a sha already reviewed", () => {
-    const d = shouldReview({ currentSha: "x", alreadyReviewedThisSha: true, last: null, allThreadsResolved: true });
+    const d = shouldReview({ ...base, currentSha: "x", alreadyReviewedThisSha: true, last: null, allThreadsResolved: true });
     expect(d.review).toBe(false);
   });
-  it("never re-reviews a clean approve", () => {
+  it("re-reviews a clean approve on a new commit", () => {
     const last = { outcome: "approve", pr: 1, sha: "old", thread_ids: [], attempts: 0 };
-    const d = shouldReview({ currentSha: "new", alreadyReviewedThisSha: false, last, allThreadsResolved: true });
-    expect(d.review).toBe(false);
+    const d = shouldReview({ ...base, currentSha: "new", alreadyReviewedThisSha: false, last, allThreadsResolved: false });
+    expect(d.review).toBe(true);
   });
-  it("requires a new commit", () => {
+  it("never re-reviews without a new commit, even if re-requested or resolved", () => {
     const last = { outcome: "suggestions", pr: 1, sha: "same", thread_ids: [1], attempts: 0 };
-    const d = shouldReview({ currentSha: "same", alreadyReviewedThisSha: false, last, allThreadsResolved: true });
+    expect(shouldReview({ currentSha: "same", alreadyReviewedThisSha: false, last, allThreadsResolved: true, reviewRequestedForMe: true }).review).toBe(false);
+  });
+  it("skips a new commit with unresolved threads and no re-request", () => {
+    const last = { outcome: "suggestions", pr: 1, sha: "old", thread_ids: [1], attempts: 0 };
+    const d = shouldReview({ ...base, currentSha: "new", alreadyReviewedThisSha: false, last, allThreadsResolved: false });
     expect(d.review).toBe(false);
   });
-  it("requires all threads resolved", () => {
+  it("re-reviews on a new commit with resolved threads", () => {
     const last = { outcome: "suggestions", pr: 1, sha: "old", thread_ids: [1], attempts: 0 };
-    const d = shouldReview({ currentSha: "new", alreadyReviewedThisSha: false, last, allThreadsResolved: false });
-    expect(d.review).toBe(false);
+    const d = shouldReview({ ...base, currentSha: "new", alreadyReviewedThisSha: false, last, allThreadsResolved: true });
+    expect(d.review).toBe(true);
   });
-  it("re-reviews on new commit with resolved threads", () => {
+  it("re-reviews on a new commit when my review is re-requested", () => {
     const last = { outcome: "suggestions", pr: 1, sha: "old", thread_ids: [1], attempts: 0 };
-    const d = shouldReview({ currentSha: "new", alreadyReviewedThisSha: false, last, allThreadsResolved: true });
+    const d = shouldReview({ currentSha: "new", alreadyReviewedThisSha: false, last, allThreadsResolved: false, reviewRequestedForMe: true });
     expect(d.review).toBe(true);
   });
 });

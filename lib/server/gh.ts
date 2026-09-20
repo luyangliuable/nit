@@ -1,7 +1,8 @@
-import { exec } from "./exec";
+import { credentials } from "./credentials";
+import { exec, type ExecResult } from "./exec";
 
-// GitHub CLI wrappers. Everything the poller and posting flow needs. All calls
-// reuse the ambient gh auth, matching pr-review-bot.sh.
+// GitHub CLI wrappers. Everything the poller and posting flow needs. Stored
+// Settings credentials override the ambient gh CLI and environment credentials.
 
 export interface PrListItem {
   number: number;
@@ -12,28 +13,40 @@ export interface PrListItem {
   mergedAt: string | null;
   author: { login: string };
   createdAt: string;
+  reviewRequests?: { login?: string; name?: string; slug?: string }[];
 }
 
 const PR_FIELDS =
-  "number,title,body,headRefOid,isDraft,mergedAt,author,createdAt";
+  "number,title,body,headRefOid,isDraft,mergedAt,author,createdAt,reviewRequests";
+
+/** Execute gh with Nit’s stored token when one is configured. */
+async function gh(args: string[], options?: { input?: string }): Promise<ExecResult> {
+  const token = await credentials.getGithubToken();
+  return exec("gh", args, {
+    ...options,
+    env: token ? { GH_TOKEN: token } : undefined,
+  });
+}
 
 export async function ghAuthOk(): Promise<boolean> {
-  const r = await exec("gh", ["auth", "status"]);
+  const r = await gh(["auth", "status"]);
   return r.code === 0;
 }
 
 export async function currentLogin(): Promise<string> {
-  const r = await exec("gh", ["api", "user", "--jq", ".login"]);
+  const configured = await credentials.getGithubUsername();
+  if (configured) return configured;
+  const r = await gh(["api", "user", "--jq", ".login"]);
   return r.code === 0 ? r.stdout.trim() : "";
 }
 
 export async function repoAccessible(repo: string): Promise<boolean> {
-  const r = await exec("gh", ["repo", "view", repo]);
+  const r = await gh(["repo", "view", repo]);
   return r.code === 0;
 }
 
 export async function canonicalRepo(repo: string): Promise<string | null> {
-  const r = await exec("gh", [
+  const r = await gh([
     "repo",
     "view",
     repo,
@@ -46,7 +59,7 @@ export async function canonicalRepo(repo: string): Promise<string | null> {
 }
 
 export async function listOpenPrs(repo: string): Promise<PrListItem[]> {
-  const r = await exec("gh", [
+  const r = await gh([
     "pr",
     "list",
     "--repo",
@@ -66,7 +79,7 @@ export async function listOpenPrsByAuthor(
   repo: string,
   author: string,
 ): Promise<PrListItem[]> {
-  const r = await exec("gh", [
+  const r = await gh([
     "pr",
     "list",
     "--repo",
@@ -88,7 +101,7 @@ export async function viewPr(
   repo: string,
   pr: string,
 ): Promise<PrListItem | null> {
-  const r = await exec("gh", [
+  const r = await gh([
     "pr",
     "view",
     pr,
@@ -102,7 +115,7 @@ export async function viewPr(
 }
 
 export async function prDiff(repo: string, pr: number): Promise<string | null> {
-  const r = await exec("gh", ["pr", "diff", String(pr), "--repo", repo]);
+  const r = await gh(["pr", "diff", String(pr), "--repo", repo]);
   if (r.code !== 0) return null;
   return r.stdout;
 }
@@ -111,7 +124,7 @@ export async function headCommitDate(
   repo: string,
   sha: string,
 ): Promise<string | null> {
-  const r = await exec("gh", [
+  const r = await gh([
     "api",
     `repos/${repo}/commits/${sha}`,
     "--jq",
@@ -125,7 +138,6 @@ export interface ReviewThread {
   firstAuthor: string;
 }
 
-// Fetch the bot review threads with resolution state, for the re-review gate.
 export async function reviewThreads(
   repo: string,
   pr: number,
@@ -137,7 +149,7 @@ export async function reviewThreads(
       pullRequest(number:$pr){
         reviewThreads(first:100){ nodes{ isResolved comments(first:1){ nodes{ author{ login } } } } }
       } } }`;
-  const r = await exec("gh", [
+  const r = await gh([
     "api",
     "graphql",
     "-f",
@@ -158,13 +170,12 @@ export async function reviewThreads(
   }));
 }
 
-// Post an approve review. Returns true on success.
 export async function postApprove(
   repo: string,
   pr: number,
   body: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  const r = await exec("gh", [
+  const r = await gh([
     "pr",
     "review",
     String(pr),
@@ -181,33 +192,24 @@ export interface InlineComment {
   path: string;
   line: number;
   side: "RIGHT";
-  // Optional multi-line anchor. When present, `start_line` < `line` and both
-  // sides are "RIGHT", producing a GitHub multi-line review comment.
   start_line?: number;
   start_side?: "RIGHT";
   body: string;
 }
 
-// Post a single body-less COMMENT review grouping inline comments. Returns the
-// created review comment ids as thread ids for the re-review gate.
 export async function postSuggestions(
   repo: string,
   pr: number,
   sha: string,
   comments: InlineComment[],
 ): Promise<{ ok: boolean; threadIds: number[]; error?: string }> {
-  // gh api does not follow 307 redirects on POST, so a renamed/moved repo (or
-  // one addressed with non-canonical casing) fails with "HTTP 307". The GET
-  // based wrappers (pr list/diff) hide this because gh follows GET redirects.
-  // Resolve the canonical owner/name first so the raw POST hits the real repo.
   const target = (await canonicalRepo(repo)) ?? repo;
   const payload = JSON.stringify({
     commit_id: sha,
     event: "COMMENT",
     comments,
   });
-  const r = await exec(
-    "gh",
+  const r = await gh(
     ["api", `repos/${target}/pulls/${pr}/reviews`, "-X", "POST", "--input", "-"],
     { input: payload },
   );
@@ -222,7 +224,7 @@ export async function postSuggestions(
   }
   let threadIds: number[] = [];
   if (reviewId) {
-    const c = await exec("gh", [
+    const c = await gh([
       "api",
       `repos/${target}/pulls/${pr}/reviews/${reviewId}/comments`,
       "--jq",

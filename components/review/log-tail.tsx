@@ -21,6 +21,13 @@ export function LogTail({ sessionId, pr }: { sessionId: string; pr?: number }) {
   const [backfill, setBackfill] = React.useState<Entry[]>([]);
   const [live, setLive] = React.useState<Entry[]>([]);
   const endRef = React.useRef<HTMLDivElement>(null);
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+  const stick = React.useRef(true);
+
+  const onScroll = React.useCallback(() => {
+    const el = scrollRef.current;
+    if (el) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  }, []);
 
   React.useEffect(() => {
     setBackfill([]);
@@ -50,11 +57,11 @@ export function LogTail({ sessionId, pr }: { sessionId: string; pr?: number }) {
   }, [backfill, live, pr]);
 
   React.useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end" });
+    if (stick.current) endRef.current?.scrollIntoView({ block: "end" });
   }, [visible]);
 
   return (
-    <div className="h-full overflow-y-auto bg-secondary/30 p-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
+    <div ref={scrollRef} onScroll={onScroll} className="h-full overflow-y-auto bg-secondary/30 p-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
       {visible.length === 0 ? (
         <div className="text-muted-foreground">
           {pr === undefined ? "No log output yet." : "No log output for this PR yet."}

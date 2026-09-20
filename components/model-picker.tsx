@@ -47,7 +47,8 @@ export function ModelPicker({
           <SelectContent>
             {options.map((o) => (
               <SelectItem key={o.key} value={o.key}>
-                {o.id}
+                <span>{o.id}</span>
+                <span className="ml-2 text-xs text-muted-foreground">{o.provider}</span>
               </SelectItem>
             ))}
           </SelectContent>

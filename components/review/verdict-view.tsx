@@ -397,7 +397,7 @@ function CommentCard({
           </div>
         </div>
       ) : (
-        <p className={deleted ? "text-xs text-muted-foreground line-through" : "text-xs"}>{comment.body}</p>
+        <p className={deleted ? "whitespace-pre-wrap text-xs text-muted-foreground line-through" : "whitespace-pre-wrap text-xs"}>{comment.body}</p>
       )}
     </div>
   );

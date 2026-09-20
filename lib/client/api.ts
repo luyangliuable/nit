@@ -3,6 +3,12 @@ import type { SessionConfig, SessionSnapshot, TranscriptBlock, AuthStatus } from
 export interface AuthResult {
   status: AuthStatus;
   hasStoredToken: boolean;
+  username?: string;
+}
+
+export interface LlmOverrideStatus {
+  endpoint: string;
+  hasApiKey: boolean;
 }
 
 async function json<T>(res: Response): Promise<T> {
@@ -97,16 +103,32 @@ export const api = {
     const r = await fetch("/api/auth");
     return json(r);
   },
-  async saveToken(token: string): Promise<AuthResult> {
+  async saveToken(token: string, username: string): Promise<AuthResult> {
     const r = await fetch("/api/auth", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
+      body: JSON.stringify({ token, username }),
     });
     return json(r);
   },
   async clearToken(): Promise<AuthResult> {
     const r = await fetch("/api/auth", { method: "DELETE" });
+    return json(r);
+  },
+  async llmOverride(): Promise<LlmOverrideStatus> {
+    const r = await fetch("/api/settings/llm");
+    return json(r);
+  },
+  async saveLlmOverride(endpoint: string, apiKey: string): Promise<LlmOverrideStatus> {
+    const r = await fetch("/api/settings/llm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint, apiKey }),
+    });
+    return json(r);
+  },
+  async clearLlmOverride(): Promise<LlmOverrideStatus> {
+    const r = await fetch("/api/settings/llm", { method: "DELETE" });
     return json(r);
   },
 };

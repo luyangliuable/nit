@@ -7,56 +7,51 @@ export function buildReviewPrompt(params: {
   pr: number;
   title: string;
   overview?: string;
+  changedFiles?: string;
   hasCheckout?: boolean;
   append?: string;
 }): string {
-  const { repo, pr, title, overview, hasCheckout, append } = params;
+  const { repo, pr, title, overview, changedFiles, hasCheckout, append } = params;
   const parts: string[] = [];
   const explore = hasCheckout
-    ? "You are in a checkout of the repository at this PR's head commit, so use your read/grep/find/ls tools to explore ANY file in the repo for context, not just changed files."
-    : "No local checkout is available, so review from the diff and PR context alone.";
+    ? "You are in a checkout of the repository at this PR's head commit, so use your read/grep/find/ls tools to explore ANY committed file for context, not just changed files. The checkout contains ONLY the repository's committed files: installed dependencies (.venv, node_modules, vendored packages) are NOT present, so reason about third-party libraries from their usage and public docs rather than trying to read their source."
+    : "No local checkout is available, so review from the diffs and PR context alone.";
   parts.push(`You are reviewing GitHub pull request #${pr} in ${repo}
-(https://github.com/${repo}/pull/${pr}). Apply the loaded review skills.
+(https://github.com/${repo}/pull/${pr}).
+
+FIRST, before reviewing any file: use the read tool to open every required skill or context file named by the system prompt or Additional instructions. Follow that guidance for the rest of this review. PR diff tools and submit_review are blocked until the required context has been read.
 
 ${explore}
 
-To see what the PR changes, use these read only tools:
-- pr_diff() for the whole PR diff (truncated if very large).
-- pr_file_diff(path) for a single changed file's diff. Only lines that appear in a file's diff (RIGHT side) are commentable.
-The PR overview (title, description, changed files, commits, existing reviews/comments) is provided below.
-
-Return your review as a SINGLE JSON object and NOTHING ELSE, matching exactly:
-
-{
-  "decision": "approve" | "suggestions",
-  "summary": "1-2 short friendly sentences",
-  "comments": [
-    { "path": "relative/file/path", "start_line": <optional first new-side line of the region>, "line": <last new-side line number>, "side": "RIGHT", "body": "1-3 friendly sentences" }
-  ]
-}
+Review the PR using these tools (do not output JSON):
+- The changed files are listed below. After required context has been read, review them in whatever order is most effective (e.g. group related files, start with the riskiest) using pr_file_diff(path). Only RIGHT-side (new file) lines shown in a diff are commentable.
+- Call review_status() any time to see which files you have and have not reviewed. next_pr_file() will hand you an arbitrary remaining file if you just want to mop up.
+- You MUST review every changed file's diff before finishing.
+- Log each issue with add_suggestion({ path, line, startLine?, body }), as you review or before submitting. It validates the anchor and flags non-commentable lines so you can fix them.
+- Prefer GitHub commit suggestions whenever there is a safe concrete replacement: include a fenced \`\`\`suggestion block in the suggestion body. Use a plain comment only for conceptual issues, missing tests, questions, or fixes that cannot be expressed as an exact replacement.
+- Once every file is reviewed (check with review_status) and any cross-file issues are added, call submit_review({ decision, summary }) to finish.
 
 Rules:
-- Use "approve" ONLY when there are no major or blocking issues; "comments" is then [].
+- Use decision "approve" ONLY when there are no major or blocking issues (and add no suggestions). Otherwise use "suggestions".
 - On "approve", the "summary" MUST start with "lgtm" (lower case). Do not use filler praise like "nice and clean" or "looks great"; keep it to "lgtm" optionally followed by one short factual clause.
-- Use "suggestions" when major or blocking issues exist; include concrete inline comments.
-- "line" is the line number in the NEW version of the file (RIGHT side), taken from the diff hunk headers.
-- When a suggestion applies to a multi-line region, set "start_line" to the first line and "line" to the last line of that region; both must appear in the SAME diff hunk and "start_line" must be strictly less than "line". Omit "start_line" for genuinely single-line notes.
-- Every "body" and the "summary" must be plain, friendly, peer-toned (e.g. "Consider ...", "Might be cleaner to ...").
+- line/startLine are NEW-version (RIGHT side) line numbers from the diff hunk headers. For a multi-line region set startLine < line, both in the SAME hunk; omit startLine for single-line notes.
+- Every suggestion body and the summary must be plain, friendly, peer-toned (e.g. "Consider ...", "Might be cleaner to ..."), 1-3 sentences. A suggestion body may add one GitHub suggestion fence after the prose when it provides an exact replacement.
 - Do NOT mention AI, models, tools, or attribution. No emojis. No em-dashes. No "generated by" footers.
-- Keep each comment to 1-3 sentences.
-- Do NOT reproduce or echo file contents, hashes, tokens, keys, base64, or long strings in your output, and never repeat text. Refer to code by path and line only, and keep the whole response short.
-- Every string value MUST be valid JSON: escape newlines as \n and do not put literal line breaks, tabs, or unescaped double quotes inside string values.
-- CRITICAL: Output the raw JSON object ONLY. Do NOT wrap it in markdown code fences, and do NOT add any text, explanation, or notes before or after the JSON.`);
+- Do NOT reproduce or echo file contents, hashes, tokens, keys, base64, or long strings. Refer to code by path and line only.`);
 
   if (append && append.trim() !== "") {
     parts.push(`\nAdditional instructions:\n${append}`);
+  }
+
+  if (changedFiles && changedFiles.trim() !== "") {
+    parts.push(`\nChanged files:\n${changedFiles}`);
   }
 
   parts.push(`\nPR title: ${title}`);
   if (overview && overview.trim() !== "") {
     parts.push(`\nPR overview:\n${overview}`);
   }
-  parts.push("\nReview the changes now. Read the changed files in the checkout and their diffs, then produce your verdict.");
+  parts.push("\nStart now: read any required skill/context files first. Then pick the file you want to review first and call pr_file_diff(path).");
   return parts.join("\n");
 }
 

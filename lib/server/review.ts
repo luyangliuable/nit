@@ -1,23 +1,32 @@
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import type { SessionConfig, ReviewVerdict, ModelSelection, ChatStreamEvent } from "@/lib/shared/types";
-import { filterDiff } from "@/lib/core/diff";
+import { filterDiff, validRightLines } from "@/lib/core/diff";
 import {
   buildReviewPrompt,
   buildVisualizationPrompt,
   extractHtmlDocument,
 } from "@/lib/core/prompt";
-import { parseVerdict } from "@/lib/core/verdict";
+import { validateSuggestion } from "@/lib/core/review-coverage";
 import { prDiff } from "./gh";
 import { runReadOnlyPrompt } from "./pi";
-import { createPrReviewTools, fetchPrOverview } from "./gh-tools";
+import { createPrReviewContext, fetchPrOverview } from "./gh-tools";
 import { prepareWorktree } from "./worktree";
-import { visualizationFile, prDir, ensureDir, rawVerdictFile } from "./paths";
+import { visualizationFile, prDir, ensureDir } from "./paths";
+import { resolveAppendRequiredContext } from "./required-context";
 import type { PrListItem } from "./gh";
 
 export interface ReviewResult {
   verdict?: ReviewVerdict;
   diff: string;
   error?: string;
+}
+
+function resolveReadPath(cwd: string, p: string): string {
+  if (p === "~") return os.homedir();
+  if (p.startsWith("~/")) return path.join(os.homedir(), p.slice(2));
+  return path.resolve(cwd, p);
 }
 
 // Fetch, filter and cap the diff exactly as pr-review-bot.sh does, then run the
@@ -68,70 +77,86 @@ export async function reviewPr(
     opts?.onLog?.(`overview-fetch-failed ${String(err)}`);
   }
 
+  // Tool-driven review: the agent reviews every changed file (tracked) and
+  // records suggestions incrementally, validated against the diff on the spot;
+  // submit_review is gated on full coverage and produces the verdict.
+  const valid = validRightLines(diff);
+  const ctx = createPrReviewContext(config.repo, pr.number, rawDiff, (sug) => validateSuggestion(valid, sug));
+  let changedFiles = "";
+  try {
+    changedFiles = await ctx.manifest();
+  } catch (err) {
+    opts?.onLog?.(`changed-files-manifest-failed ${String(err)}`);
+  }
+
   const prompt = buildReviewPrompt({
     repo: config.repo,
     pr: pr.number,
     title: pr.title,
     overview,
+    changedFiles,
     hasCheckout: cwd !== process.cwd(),
     append: config.appendPrompt,
   });
 
-  // The agent pulls the exact changes on demand via these read only tools; we
-  // still keep `diff` server side for comment validation and the visualization.
-  const prTools = createPrReviewTools(config.repo, pr.number);
-
-  // Retry on empty/unparseable output, up to maxAttempts, appending a
-  // corrective instruction after the first miss. This is what makes the
-  // maxAttempts config actually do something.
-  const maxAttempts = Math.max(1, config.maxAttempts || 1);
-  const corrective =
-    "\n\nIMPORTANT: Your previous reply could not be parsed. Reply with ONLY the JSON " +
-    "object described above, valid JSON, with every newline inside a string escaped as \\n. " +
-    "No prose, no explanation, no markdown code fences.";
-
-  let lastError = "invalid-verdict-json";
-  let lastText = "";
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    let text: string;
-    try {
-      text = await runReadOnlyPrompt({
-        prompt: attempt === 1 ? prompt : prompt + corrective,
-        cwd,
-        model,
-        skills: config.skills,
-        signal: opts?.signal,
-        label: `#${pr.number}${maxAttempts > 1 ? ` a${attempt}/${maxAttempts}` : ""}`,
-        onLog: opts?.onLog,
-        onStream: opts?.onStream,
-        sessionDir: opts?.sessionDir,
-        customTools: prTools,
-      });
-    } catch (err) {
-      lastError = `review-run-failed: ${String(err)}`;
-      // Do not retry a user-initiated stop.
-      if (opts?.signal?.aborted) return { diff, error: lastError };
-      continue;
-    }
-
-    const verdict = parseVerdict(text);
-    if (verdict) return { verdict, diff };
-
-    lastText = text;
-    lastError = "invalid-verdict-json";
-    opts?.onLog?.(`attempt ${attempt}/${maxAttempts} invalid-verdict-json rawLen=${text.length}`);
-    if (opts?.signal?.aborted) return { diff, error: lastError };
-  }
-
-  // Persist the last raw output so the failure can be inspected.
   try {
-    ensureDir(prDir(config.id, pr.number));
-    fs.writeFileSync(rawVerdictFile(config.id, pr.number, pr.headRefOid), lastText, "utf8");
-    opts?.onLog?.(`saved raw output to ${rawVerdictFile(config.id, pr.number, pr.headRefOid)}`);
-  } catch {
-    /* best effort */
+    await runReadOnlyPrompt({
+      prompt,
+      cwd,
+      model,
+      skills: config.skills,
+      signal: opts?.signal,
+      label: `#${pr.number}`,
+      onLog: opts?.onLog,
+      onStream: opts?.onStream,
+      sessionDir: opts?.sessionDir,
+      customTools: ctx.tools,
+      // Force the model to actually read loaded skills and any explicit docs /
+      // skill files referenced in the append prompt before PR diffs are shown
+      // or submit_review can succeed.
+      onSkillsLoaded: (skills) => {
+        const appendContext = resolveAppendRequiredContext({
+          appendPrompt: config.appendPrompt,
+          cwd,
+          loadedSkills: skills,
+        });
+        for (const ref of appendContext.unresolved) {
+          opts?.onLog?.(`append-context-unresolved ${ref}`);
+        }
+        const loadedSkillPaths = skills.map((s) => s.filePath).filter(Boolean);
+        const required = [...new Set([...loadedSkillPaths, ...appendContext.paths])];
+        ctx.setRequiredReads(required);
+        opts?.onLog?.(`required-context files=${required.length}${appendContext.paths.length ? ` append=${appendContext.paths.length}` : ""}`);
+      },
+      onToolExecuted: (name, args, isError) => {
+        if (isError || name !== "read") return;
+        const p = (args as { path?: unknown } | undefined)?.path;
+        if (typeof p !== "string" || p.trim() === "") return;
+        ctx.markRead(resolveReadPath(cwd, p));
+      },
+      finalize: {
+        completed: ctx.completed,
+        maxFollowUps: Math.max(0, (config.maxAttempts || 1) - 1),
+        isComplete: async () => ctx.getVerdict() !== null,
+        reminder: async () => {
+          const unread = ctx.unreadRequired();
+          if (unread.length > 0) {
+            return `Before anything else you MUST read the loaded skill/context file(s) in full with the read tool: ${unread.join(", ")}. Read them, follow their guidance, then continue reviewing and call submit_review().`;
+          }
+          const rem = await ctx.remaining();
+          return rem.length > 0
+            ? `You have not reviewed these files yet: ${rem.join(", ")}. Review each with next_pr_file()/pr_file_diff(path), add any suggestions, then call submit_review().`
+            : "All files are reviewed. Add any final suggestions, then call submit_review({ decision, summary }) to finish.";
+        },
+      },
+    });
+  } catch (err) {
+    return { diff, error: `review-run-failed: ${String(err)}` };
   }
-  return { diff, error: lastError };
+
+  const verdict = ctx.getVerdict();
+  if (verdict) return { verdict, diff };
+  return { diff, error: opts?.signal?.aborted ? "stopped" : "no-verdict-submitted" };
 }
 
 // Generate the HTML visualization for a PR and save it, returning the file path

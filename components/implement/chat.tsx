@@ -17,6 +17,13 @@ export function Chat({ sessionId }: { sessionId: string }) {
   const [streaming, setStreaming] = React.useState(false);
   const [menuIndex, setMenuIndex] = React.useState(0);
   const endRef = React.useRef<HTMLDivElement>(null);
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+  const stick = React.useRef(true);
+
+  const onScroll = React.useCallback(() => {
+    const el = scrollRef.current;
+    if (el) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  }, []);
 
   React.useEffect(() => {
     void api.chatState(sessionId).then((s) => {
@@ -41,7 +48,7 @@ export function Chat({ sessionId }: { sessionId: string }) {
   }, [sessionId, subscribeChat]);
 
   React.useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end" });
+    if (stick.current) endRef.current?.scrollIntoView({ block: "end" });
   }, [blocks]);
 
   const showCommands = input.startsWith("/") && !input.includes(" ");
@@ -89,14 +96,14 @@ export function Chat({ sessionId }: { sessionId: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
         {blocks.length === 0 && (
           <div className="text-sm text-muted-foreground">
             Prompt the pi coding agent to implement changes in the local clone. Type / for slash commands.
           </div>
         )}
-        {blocks.map((b) => (
-          <BlockView key={b.key} block={b} />
+        {blocks.map((b, i) => (
+          <BlockView key={b.key} block={b} streaming={streaming} isLast={i === blocks.length - 1} />
         ))}
         <div ref={endRef} />
       </div>

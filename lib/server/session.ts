@@ -11,12 +11,13 @@ import {
 } from "@/lib/shared/types";
 import {
   stateKey,
+  queueKey,
   lastCompletedForPr,
   shouldReview,
   type StateStore,
 } from "@/lib/core/state";
 import { validRightLines, isCommentableLine, isCommentableRange, filterDiff, lineRegion } from "@/lib/core/diff";
-import { sanitizeText } from "@/lib/core/sanitize";
+import { sanitizeReviewComment, sanitizeText } from "@/lib/core/sanitize";
 import {
   currentLogin,
   listOpenPrs,
@@ -44,6 +45,24 @@ function randomId(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
+// Collapse a queue that may still be keyed per sha (repo#pr@sha) into one entry
+// per PR keyed repo#pr, keeping the newest item per PR. Idempotent: an already
+// per-PR queue passes through unchanged (aside from re-stamping the key).
+function migrateQueueToPerPr(repo: string, queue: Queue): Queue {
+  const byPr = new Map<number, ApprovalItem>();
+  const rank = (i: ApprovalItem) => i.lastCommitDate ?? i.updatedAt ?? "";
+  for (const item of Object.values(queue)) {
+    const prev = byPr.get(item.pr);
+    if (!prev || rank(item) >= rank(prev)) byPr.set(item.pr, item);
+  }
+  const next: Queue = {};
+  for (const [pr, item] of byPr) {
+    const key = queueKey(repo, pr);
+    next[key] = { ...item, key };
+  }
+  return next;
+}
+
 export class Session {
   config: SessionConfig;
   private state: StateStore;
@@ -62,6 +81,9 @@ export class Session {
     this.config = config;
     this.state = readJson<StateStore>(stateFile(config.id), {});
     this.queue = readJson<Queue>(this.queueFile(), {});
+    // Migrate legacy per-sha queues (keyed repo#pr@sha) to one entry per PR
+    // (repo#pr), keeping the most recent item per PR so old duplicates vanish.
+    this.queue = migrateQueueToPerPr(config.repo, this.queue);
     // A fresh process has no in-flight reviews, so any item persisted as
     // "reviewing" is a zombie from a prior run. Mark it interrupted so it is no
     // longer stuck and the poller can re-review it.
@@ -213,6 +235,26 @@ export class Session {
     return this.config.blacklistAuthors.some((a) => a.toLowerCase() === l);
   }
 
+  // Drop sidebar items for PRs that are no longer open (merged or closed).
+  // Merged/closed PRs never appear in the open-PR poll, so we reconcile against
+  // the just-gathered open set. Only runs after a successful gather.
+  private reconcileClosed(openPrs: PrListItem[]): void {
+    // In whitelist mode the gathered set is a subset (and author gathers can
+    // partially fail), so reconciling would wrongly drop untracked PRs. Only
+    // reconcile when polling the full open-PR list.
+    if (this.whitelistEnabled()) return;
+    const open = new Set(openPrs.map((p) => p.number));
+    let changed = false;
+    for (const [key, item] of Object.entries(this.queue)) {
+      if (!open.has(item.pr)) {
+        delete this.queue[key];
+        this.logger.log(`CLOSED pr=#${item.pr} reason=merged-or-closed action=removed`, item.pr);
+        changed = true;
+      }
+    }
+    if (changed) void this.persistQueue();
+  }
+
   async pollCycle(): Promise<void> {
     if (this.polling) return;
     if (!this.config.repo) return;
@@ -229,6 +271,7 @@ export class Session {
           this.logger.log(`ERROR pr=#${pr.number} reason=consider-failed ${String(err)}`, pr.number);
         }
       }
+      this.reconcileClosed(prs);
       this.emit();
     } catch (err) {
       this.logger.log(`ERROR reason=poll-failed ${String(err)}`);
@@ -250,17 +293,20 @@ export class Session {
     if (!this.config.includeOwn && pr.author.login === this.me) return;
     if (this.isBlacklisted(pr.author.login)) return;
 
-    const key = stateKey(repo, pr.number, pr.headRefOid);
+    // Queue is keyed per PR (one sidebar row); state history stays per sha.
+    const key = queueKey(repo, pr.number);
+    const skey = stateKey(repo, pr.number, pr.headRefOid);
 
-    // Already completed at this sha, or already queued and awaiting a human.
+    // Already queued and awaiting a human.
     const existing = this.queue[key];
     if (existing && (existing.status === "reviewing" || existing.status === "pending")) {
       return;
     }
-    const stateRec = this.state[key];
+    const stateRec = this.state[skey];
     const alreadyReviewedThisSha = !!stateRec && stateRec.outcome != null;
 
     const last = lastCompletedForPr(this.state, repo, pr.number);
+    const reviewRequestedForMe = (pr.reviewRequests ?? []).some((r) => r.login === this.me);
     let allResolved = false;
     if (last && (last.thread_ids?.length ?? 0) > 0 && pr.headRefOid !== last.sha) {
       allResolved = await this.allThreadsResolved(pr.number);
@@ -271,6 +317,7 @@ export class Session {
       alreadyReviewedThisSha,
       last,
       allThreadsResolved: allResolved,
+      reviewRequestedForMe,
     });
     if (!gate.review) return;
 
@@ -419,8 +466,8 @@ export class Session {
     item.summary = sanitizeText(result.verdict.summary);
     item.comments = result.verdict.comments.map<QueuedComment>((c) => ({
       ...c,
-      body: sanitizeText(c.body),
-      originalBody: sanitizeText(c.body),
+      body: sanitizeReviewComment(c.body),
+      originalBody: sanitizeReviewComment(c.body),
       id: randomId(),
       status: "pending",
       codeContext: lineRegion(result.diff, c.path, c.line, c.startLine),
@@ -528,7 +575,7 @@ export class Session {
     if (!item) return;
     const c = item.comments.find((x) => x.id === commentId);
     if (!c) return;
-    c.body = sanitizeText(body);
+    c.body = sanitizeReviewComment(body);
     void this.persistQueue();
     this.emit();
   }
@@ -563,7 +610,7 @@ export class Session {
     const toPost = item.comments
       .filter((c) => c.status !== "deleted")
       .map((c) => {
-        const base = { path: c.path, line: c.line, side: "RIGHT" as const, body: sanitizeText(c.body) };
+        const base = { path: c.path, line: c.line, side: "RIGHT" as const, body: sanitizeReviewComment(c.body) };
         // Keep the multi-line anchor only when the whole span is in one hunk;
         // otherwise silently downgrade to a single-line comment.
         if (c.startLine !== undefined && isCommentableRange(valid, c.path, c.startLine, c.line)) {
@@ -616,7 +663,9 @@ export class Session {
     const pad = (n: number) => String(n).padStart(2, "0");
     const d = new Date();
     const at = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-    this.state[item.key] = {
+    // State history is keyed per sha (queue is keyed per PR), so the gate can
+    // tell which commits were already reviewed.
+    this.state[stateKey(this.config.repo, item.pr, item.sha)] = {
       outcome,
       at,
       pr: item.pr,
