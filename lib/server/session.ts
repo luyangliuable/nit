@@ -8,6 +8,7 @@ import {
   type ReviewOverrides,
   type ChatStreamEvent,
   type TranscriptBlock,
+  type ChangeVisualization,
 } from "@/lib/shared/types";
 import {
   stateKey,
@@ -32,6 +33,7 @@ import {
 } from "./gh";
 import { reviewPr, generateVisualization } from "./review";
 import { readReviewTranscript } from "./pi";
+import { normalizeVisualization } from "@/lib/core/visualization";
 import { githubAuthStatus } from "./octokit";
 import { reviewSemaphore } from "./semaphore";
 import { SessionLogger } from "./logger";
@@ -92,6 +94,8 @@ export class Session {
         item.status = "error";
         item.error = "interrupted";
       }
+      // No generation can be in flight in a fresh process.
+      item.visualizationBusy = false;
     }
     this.logger = new SessionLogger(config.id, (line, pr) =>
       hub.publish({ type: "log", sessionId: config.id, line, pr }),
@@ -482,19 +486,25 @@ export class Session {
     );
 
     // Generate the visualization alongside the verdict (also capped).
+    item.visualizationBusy = true;
+    item.visualizationError = undefined;
+    this.emit();
     void reviewSemaphore
       .run(() => generateVisualization(this.config, pr, result.diff))
       .then(async (viz) => {
         const it = this.queue[key];
         if (!it) return;
-        if (viz.path) {
+        it.visualizationBusy = false;
+        if (viz.visualization) {
           it.hasVisualization = true;
-          it.updatedAt = new Date().toISOString();
-          await this.persistQueue();
-          this.emit();
+          it.visualizationError = undefined;
         } else if (viz.error) {
+          it.visualizationError = viz.error;
           this.logger.log(`WARN pr=#${pr.number} reason=${viz.error}`, pr.number);
         }
+        it.updatedAt = new Date().toISOString();
+        await this.persistQueue();
+        this.emit();
       });
 
     this.unread++;
@@ -676,9 +686,59 @@ export class Session {
     void this.persistState();
   }
 
-  readVisualization(pr: number, sha: string): string | null {
+  // (Re)generate the change visualization for a queued PR. Fire and forget:
+  // progress and the result are broadcast to clients over SSE.
+  async regenerateVisualization(key: string): Promise<{ ok: boolean; error?: string }> {
+    const item = this.queue[key];
+    if (!item) return { ok: false, error: "not-found" };
+    if (item.visualizationBusy) return { ok: false, error: "already-generating" };
+
+    // Prefer fresh PR data but fall back to the cached queue item if the GitHub
+    // lookup fails, so regeneration still proceeds.
+    let pr = await viewPr(this.config.repo, String(item.pr));
+    if (!pr) {
+      pr = {
+        number: item.pr,
+        title: item.title,
+        body: "",
+        headRefOid: item.sha,
+        isDraft: false,
+        mergedAt: null,
+        author: { login: item.author },
+        createdAt: item.createdAt,
+      };
+    }
+
+    item.visualizationBusy = true;
+    item.visualizationError = undefined;
+    this.emit();
+    this.logger.log(`VIZ regenerate pr=#${item.pr}`, item.pr);
+
+    void reviewSemaphore
+      .run(() => generateVisualization(this.config, pr))
+      .then(async (viz) => {
+        const it = this.queue[key];
+        if (!it) return;
+        it.visualizationBusy = false;
+        if (viz.visualization) {
+          it.hasVisualization = true;
+          it.visualizationError = undefined;
+        } else if (viz.error) {
+          it.visualizationError = viz.error;
+          this.logger.log(`WARN pr=#${it.pr} reason=${viz.error}`, it.pr);
+        }
+        it.updatedAt = new Date().toISOString();
+        await this.persistQueue();
+        this.emit();
+      });
+
+    return { ok: true };
+  }
+
+  readVisualization(pr: number, sha: string): ChangeVisualization | null {
     try {
-      return fs.readFileSync(visualizationFile(this.config.id, pr, sha), "utf8");
+      const raw = fs.readFileSync(visualizationFile(this.config.id, pr, sha), "utf8");
+      return normalizeVisualization(JSON.parse(raw));
     } catch {
       return null;
     }

@@ -26,15 +26,16 @@
 ---
 
 nit watches a GitHub repository for pull requests, reviews each incoming PR with
-a headless pi session, shows you an auto generated HTML visualization of the
-changes, and lets you approve or post suggestions with a button. It also runs as
-a full pi coding agent so you can implement fixes in a local clone without
-leaving the app.
+a headless pi session, shows you an auto generated change visualization (charts
+and tables, no prose), and lets you approve or post suggestions with a button. It
+also runs as a full pi coding agent so you can implement fixes in a local clone
+without leaving the app.
 
 ## Features
 
 - Watches a repository and reviews each incoming pull request read only.
-- Generates a self contained HTML visualization of every change.
+- Generates a theme aware chart and table visualization of every change, with a
+  one click regenerate button. No prose, only diagrams and tables.
 - Holds each verdict in an approval queue. Nothing is posted until you click.
 - Edits or drops individual inline suggestions before posting.
 - Implement mode: a full pi coding session on a local clone, with a git panel.
@@ -111,7 +112,7 @@ nit exposes a small REST surface plus one server sent events stream.
 | POST | `/api/sessions/:id/action` | Poller control and approval actions |
 | GET, POST | `/api/sessions/:id/chat` | Implement mode chat |
 | GET, POST | `/api/sessions/:id/git` | Git branch, status, and operations |
-| GET | `/api/sessions/:id/visualization` | Saved HTML visualization |
+| GET | `/api/sessions/:id/visualization` | Saved change visualization (structured JSON) |
 | GET | `/api/models` | Models available in your pi config |
 | GET | `/api/events` | Server sent events stream |
 

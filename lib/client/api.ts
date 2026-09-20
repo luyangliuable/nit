@@ -1,4 +1,4 @@
-import type { SessionConfig, SessionSnapshot, TranscriptBlock, AuthStatus } from "@/lib/shared/types";
+import type { SessionConfig, SessionSnapshot, TranscriptBlock, AuthStatus, ChangeVisualization } from "@/lib/shared/types";
 
 export interface AuthResult {
   status: AuthStatus;
@@ -50,10 +50,10 @@ export const api = {
     });
     return json(r);
   },
-  async visualization(id: string, pr: number, sha: string): Promise<string | null> {
+  async visualization(id: string, pr: number, sha: string): Promise<ChangeVisualization | null> {
     const r = await fetch(`/api/sessions/${id}/visualization?pr=${pr}&sha=${sha}`);
     if (!r.ok) return null;
-    return (await json<{ html: string }>(r)).html;
+    return (await json<{ visualization: ChangeVisualization }>(r)).visualization;
   },
   async reviewTranscript(id: string, pr: number): Promise<TranscriptBlock[]> {
     const r = await fetch(`/api/sessions/${id}/review-stream?pr=${pr}`);

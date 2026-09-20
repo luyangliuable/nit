@@ -35,6 +35,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       // Fire and forget: the review runs async and streams updates over SSE.
       void session.reReview(body.key, body.overrides);
       return NextResponse.json({ ok: true });
+    case "regenerate_visualization":
+      // Fire and forget: generation streams updates over SSE.
+      return NextResponse.json(await session.regenerateVisualization(body.key));
     case "stop_review":
       session.stopReview(body.key);
       return NextResponse.json({ ok: true });

@@ -44,6 +44,14 @@
     --input: 220 13% 88%;
     --ring: 222 47% 30%;
 
+    /* Chart palette for the change visualization. Kept solid and theme aware. */
+    --viz-1: 217 91% 55%;
+    --viz-2: 173 80% 36%;
+    --viz-3: 32 95% 44%;
+    --viz-4: 0 72% 51%;
+    --viz-5: 262 83% 58%;
+    --viz-6: 199 89% 48%;
+
     --radius: 0.375rem;
   }
 
@@ -81,6 +89,14 @@
     --border: 222 14% 24%;
     --input: 222 14% 24%;
     --ring: 210 16% 70%;
+
+    /* Darker surfaces need lighter chart hues to stay legible. */
+    --viz-1: 217 91% 66%;
+    --viz-2: 173 70% 50%;
+    --viz-3: 38 92% 60%;
+    --viz-4: 0 75% 65%;
+    --viz-5: 262 85% 72%;
+    --viz-6: 199 85% 60%;
   }
 }
 

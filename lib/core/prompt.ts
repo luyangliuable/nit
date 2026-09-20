@@ -63,27 +63,46 @@ export function buildVisualizationPrompt(params: {
   diff: string;
 }): string {
   const { repo, pr, title, body, diff } = params;
-  return `You are generating a change visualization for GitHub pull request #${pr} in ${repo}.
-Produce a SINGLE self contained HTML document that helps a human reviewer quickly
-understand what this pull request changes and why it matters. You are given ONLY
-the unified diff below.
+  return `You convert a GitHub pull request diff into a JSON spec for a change
+visualization that a reviewer can scan at a glance. You are given ONLY the
+unified diff and PR context below.
 
 Output rules:
-- Output ONE complete HTML document only, starting with <!doctype html>. No markdown
-  fences, no commentary before or after.
-- The document must be fully self contained: inline CSS in a <style> tag, no external
-  network requests, no remote scripts, fonts, or images.
-- Use only solid colors, no CSS gradients. Keep box shadows minimal or absent. Use a
-  clean neutral palette that works on a white background.
-- No emojis. No em-dashes or en-dashes anywhere in the text.
+- Output ONLY a single JSON object. No markdown fences, no commentary, no prose.
+- The visualization must consist purely of charts, diagrams and tables. Never
+  output sentences, paragraphs, summaries, rationale or explanations. Use only
+  short labels, column names and numbers.
+- Every number must be derived from the diff. Do not invent metrics.
+- Keep labels short: file paths, area names, categories.
 
-Content the document should include:
-- A short high level summary of what changed and why it matters.
-- A file by file impact list: for each touched file, one line on what changed.
-- A risk and attention section calling out anything a reviewer should look at closely
-  (behavior changes, security, error handling, migrations, config).
-- Short annotated snippets for the most important changes, referenced by file and line.
-Do not simply re-print the raw diff; interpret it for the reviewer.
+Schema:
+{
+  "title": string (short, optional),
+  "blocks": Block[]
+}
+
+Block is one of:
+- {"kind":"stats","title":string?,"stats":[{"label":string,"value":number,"unit":string?,"tone":Tone?}]}
+- {"kind":"bar","title":string?,"unit":string?,"data":[{"label":string,"value":number,"tone":Tone?}]}
+- {"kind":"donut","title":string?,"unit":string?,"data":[{"label":string,"value":number,"tone":Tone?}]}
+- {"kind":"treemap","title":string?,"unit":string?,"data":[{"label":string,"value":number,"tone":Tone?}]}
+- {"kind":"stacked","title":string?,"unit":string?,"series":string[],"data":[{"label":string,"values":number[]}]}
+- {"kind":"heatmap","title":string?,"columns":string[],"rows":string[],"values":number[][],"legend":[string,string]?}
+- {"kind":"table","title":string?,"columns":string[],"rows":string[][]}
+
+Tone is one of "neutral","add","del","warning","critical".
+
+Guidance:
+- Start with a "stats" block for totals: files, lines added, lines removed.
+- Add a "stacked" block of added vs removed per file.
+- Add a "donut" or "treemap" for churn grouped by area (source, tests, docs, config).
+- Add a "heatmap" for risk by file (rows) across dimensions such as security,
+  tests, config, behavior and error handling (columns) using small integer scores.
+- Add a "table" of file impact with columns File, Area, Added, Removed, Risk.
+- Keep it under 12 blocks and 24 rows/items per block.
+
+Repository: ${repo}
+PR number: ${pr}
 
 PR title: ${title}
 
@@ -92,16 +111,4 @@ ${body}
 
 Unified diff:
 ${diff}`;
-}
-
-// Extract a single HTML document from model output, tolerant of fences or
-// leading prose. Returns null when nothing HTML-like is found.
-export function extractHtmlDocument(text: string): string | null {
-  let t = text.replace(/```[a-zA-Z]*/g, "").replace(/```/g, "");
-  const lower = t.toLowerCase();
-  const docStart = lower.indexOf("<!doctype html");
-  if (docStart >= 0) return t.slice(docStart).trim();
-  const htmlStart = lower.indexOf("<html");
-  if (htmlStart >= 0) return t.slice(htmlStart).trim();
-  return null;
 }
