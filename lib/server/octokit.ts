@@ -23,10 +23,10 @@ interface ResolvedToken {
 }
 
 async function resolveToken(): Promise<ResolvedToken | null> {
-  const fromEnv = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
-  if (fromEnv && fromEnv.trim()) return { token: fromEnv.trim(), source: "env" };
   const stored = await credentials.getGithubToken();
   if (stored) return { token: stored, source: "stored" };
+  const fromEnv = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
+  if (fromEnv && fromEnv.trim()) return { token: fromEnv.trim(), source: "env" };
   const r = await exec("gh", ["auth", "token"]);
   if (r.code === 0 && r.stdout.trim()) return { token: r.stdout.trim(), source: "gh-cli" };
   return null;

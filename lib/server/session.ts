@@ -17,7 +17,7 @@ import {
   type StateStore,
 } from "@/lib/core/state";
 import { validRightLines, isCommentableLine, isCommentableRange, filterDiff, lineRegion } from "@/lib/core/diff";
-import { sanitizeText } from "@/lib/core/sanitize";
+import { sanitizeReviewComment, sanitizeText } from "@/lib/core/sanitize";
 import {
   currentLogin,
   listOpenPrs,
@@ -466,8 +466,8 @@ export class Session {
     item.summary = sanitizeText(result.verdict.summary);
     item.comments = result.verdict.comments.map<QueuedComment>((c) => ({
       ...c,
-      body: sanitizeText(c.body),
-      originalBody: sanitizeText(c.body),
+      body: sanitizeReviewComment(c.body),
+      originalBody: sanitizeReviewComment(c.body),
       id: randomId(),
       status: "pending",
       codeContext: lineRegion(result.diff, c.path, c.line, c.startLine),
@@ -575,7 +575,7 @@ export class Session {
     if (!item) return;
     const c = item.comments.find((x) => x.id === commentId);
     if (!c) return;
-    c.body = sanitizeText(body);
+    c.body = sanitizeReviewComment(body);
     void this.persistQueue();
     this.emit();
   }
@@ -610,7 +610,7 @@ export class Session {
     const toPost = item.comments
       .filter((c) => c.status !== "deleted")
       .map((c) => {
-        const base = { path: c.path, line: c.line, side: "RIGHT" as const, body: sanitizeText(c.body) };
+        const base = { path: c.path, line: c.line, side: "RIGHT" as const, body: sanitizeReviewComment(c.body) };
         // Keep the multi-line anchor only when the whole span is in one hunk;
         // otherwise silently downgrade to a single-line comment.
         if (c.startLine !== undefined && isCommentableRange(valid, c.path, c.startLine, c.line)) {

@@ -139,6 +139,11 @@ export function createPrReviewContext(
   async function remaining(): Promise<string[]> {
     return (await files()).map((f) => f.filename).filter((p) => !visited.has(p));
   }
+  function unreadRequiredMessage(): string | null {
+    const unread = unreadRequired();
+    if (unread.length === 0) return null;
+    return `Required context must be read before PR diffs are available. Use the read tool on: ${unread.join(", ")}`;
+  }
   function body(f: PrFile, all: PrFile[]): string {
     visited.add(f.filename);
     const left = all.length - visited.size;
@@ -154,7 +159,9 @@ export function createPrReviewContext(
       const all = await files();
       const done = all.filter((f) => visited.has(f.filename)).map((f) => f.filename);
       const left = all.filter((f) => !visited.has(f.filename)).map((f) => f.filename);
-      return text(`Reviewed ${done.length}/${all.length}.\nRemaining (${left.length}):\n${left.map((p) => `- ${p}`).join("\n") || "(none)"}`);
+      const unread = unreadRequired();
+      const context = unread.length > 0 ? `Required context unread (${unread.length}):\n${unread.map((p) => `- ${p}`).join("\n")}\n\n` : "";
+      return text(`${context}Reviewed ${done.length}/${all.length}.\nRemaining (${left.length}):\n${left.map((p) => `- ${p}`).join("\n") || "(none)"}`);
     },
   };
 
@@ -164,6 +171,8 @@ export function createPrReviewContext(
     description: "Convenience: return the diff of an arbitrary changed file you have not reviewed yet. Prefer pr_file_diff(path) to choose the order yourself; use this only to mop up remaining files.",
     parameters: Type.Object({}),
     execute: async (): Promise<TextResult> => {
+      const blocked = unreadRequiredMessage();
+      if (blocked) return text(blocked);
       const all = await files();
       const next = all.find((f) => !visited.has(f.filename));
       if (!next) return text(`All ${all.length} files reviewed. Add any final suggestions, then call submit_review().`);
@@ -177,6 +186,8 @@ export function createPrReviewContext(
     description: "Get the unified diff for a specific changed file you choose (exact path from the changed-files list). This is the primary way to review: pick files in whatever order is most effective. Marks it reviewed.",
     parameters: Type.Object({ path: Type.String({ description: "Exact changed-file path." }) }),
     execute: async (_id, p: { path: string }): Promise<TextResult> => {
+      const blocked = unreadRequiredMessage();
+      if (blocked) return text(blocked);
       const all = await files();
       const f = all.find((x) => x.filename === p.path);
       if (!f) return text(`No changed file named "${p.path}". Use a path from the changed-files list.`);
@@ -187,7 +198,7 @@ export function createPrReviewContext(
   const addSuggestion: ToolDefinition = {
     name: "add_suggestion",
     label: "Add suggestion",
-    description: "Record an inline review suggestion as soon as you spot it. line/startLine are RIGHT-side (new file) line numbers from the diff. Returns whether it was accepted.",
+    description: "Record an inline review suggestion as soon as you spot it. line/startLine are RIGHT-side (new file) line numbers from the diff. Prefer a GitHub commit suggestion by including a ```suggestion fenced replacement in body when there is a safe exact fix. Returns whether it was accepted.",
     parameters: Type.Object({
       path: Type.String(),
       line: Type.Number({ description: "Last (or only) RIGHT-side line the note anchors to." }),

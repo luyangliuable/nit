@@ -11,12 +11,12 @@ export interface ExecResult {
 export function exec(
   command: string,
   args: string[],
-  options: { cwd?: string; input?: string; timeoutMs?: number } = {},
+  options: { cwd?: string; input?: string; timeoutMs?: number; env?: Record<string, string | undefined> } = {},
 ): Promise<ExecResult> {
   return new Promise((resolve) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
-      env: process.env,
+      env: { ...process.env, ...options.env },
     });
 
     let stdout = "";

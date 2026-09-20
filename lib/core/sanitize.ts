@@ -7,7 +7,7 @@ const EMOJI_RANGES = new RegExp(
   "gu",
 );
 
-export function sanitizeText(input: string): string {
+function sanitizePlainText(input: string): string {
   let t = input;
 
   // Strip attribution phrases (case insensitive).
@@ -31,5 +31,26 @@ export function sanitizeText(input: string): string {
   // Trim leading dangling punctuation and whitespace, then trailing whitespace.
   t = t.replace(/^[\s\p{P}]*/u, "").replace(/\s*$/u, "");
 
+  return t;
+}
+
+export function sanitizeText(input: string): string {
+  return sanitizePlainText(input);
+}
+
+// Comment bodies may contain GitHub ```suggestion fences. Preserve fenced code
+// byte-for-byte so indentation remains commit-suggestion compatible, while
+// applying the usual attribution/emoji cleanup to the prose around the fences.
+export function sanitizeReviewComment(input: string): string {
+  const fences: string[] = [];
+  const placeholder = (i: number) => `NITFENCE${i}TOKEN`;
+  const withoutFences = input.replace(/```[\s\S]*?```/g, (block) => {
+    const idx = fences.push(block) - 1;
+    return placeholder(idx);
+  });
+  let t = sanitizePlainText(withoutFences).replace(/[ \t]+\n/g, "\n");
+  for (let i = 0; i < fences.length; i++) {
+    t = t.replace(placeholder(i), fences[i]);
+  }
   return t;
 }

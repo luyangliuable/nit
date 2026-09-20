@@ -97,7 +97,8 @@ export function parseVerdict(text: string): ReviewVerdict | null {
   if (typeof raw !== "object" || raw === null) return null;
 
   const obj = raw as Record<string, unknown>;
-  const decision = obj.decision === "approve" ? "approve" : "suggestions";
+  if (obj.decision !== "approve" && obj.decision !== "suggestions") return null;
+  const decision = obj.decision;
   const summary = typeof obj.summary === "string" ? obj.summary : "";
   const comments: ReviewComment[] = [];
 

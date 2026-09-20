@@ -1,5 +1,7 @@
 import type { ModelSelection, ChatStreamEvent, TranscriptBlock } from "@/lib/shared/types";
 import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
+import type { LoadedSkillInfo } from "./required-context";
+import { credentials } from "./credentials";
 import { loadPiSdk } from "./pi-sdk";
 import { createPiEventMapper, messagesToBlocks } from "./pi-stream";
 
@@ -32,6 +34,28 @@ export async function getRegistry(): Promise<any> {
 // models.json are found via the registry.
 export async function resolveModel(selection: ModelSelection): Promise<any> {
   const registry = await getRegistry();
+  const override = await credentials.getLlmOverride();
+  if (override) {
+    const provider = `nit-openai-${selection.model.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+    registry.registerProvider(provider, {
+      name: "Nit Settings override",
+      baseUrl: override.endpoint,
+      apiKey: override.apiKey,
+      authHeader: true,
+      api: "openai-responses",
+      models: [{
+        id: selection.model,
+        name: selection.model,
+        reasoning: selection.thinking !== "off",
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 128000,
+        maxTokens: 16384,
+      }],
+    });
+    const model = registry.find(provider, selection.model);
+    if (model) return model;
+  }
   const model = registry.find(selection.provider, selection.model);
   if (!model) {
     throw new Error(
@@ -84,6 +108,13 @@ export function preloadModels(): void {
   void listAvailableModels();
 }
 
+/** Clear cached Pi configuration after an in-app LLM override changes. */
+export function resetPiConfig(): void {
+  authStorage = null;
+  modelRegistry = null;
+  modelsCache = null;
+}
+
 // Run a single read only prompt in a throwaway in memory session and return the
 // full assistant text. Used for both the review verdict and the HTML
 // visualization sub sessions.
@@ -96,10 +127,10 @@ export async function runReadOnlyPrompt(params: {
   label?: string;
   onLog?: (msg: string) => void;
   onStream?: (event: ChatStreamEvent) => void;
-  // Called once after the resource loader resolves, with the absolute file
-  // paths of every skill that pi loaded (empty when none). Lets the caller gate
-  // the run on the model actually reading the loaded skills.
-  onSkillsLoaded?: (skillFilePaths: string[]) => void;
+  // Called once after the resource loader resolves, with every skill that pi
+  // loaded (empty when none). Lets the caller gate the run on the model
+  // actually reading loaded skills and append-prompt context.
+  onSkillsLoaded?: (skills: LoadedSkillInfo[]) => void;
   // Called after each tool finishes (name, raw args, whether it errored) so the
   // caller can observe read/grep/etc. calls (e.g. to track which files the
   // model has read toward a required-reads gate).
@@ -114,7 +145,7 @@ export async function runReadOnlyPrompt(params: {
   // complete (e.g. coverage not met / verdict not submitted) the agent is
   // re-prompted in the same session with reminder(). No cap; the AbortSignal is
   // the escape hatch.
-  finalize?: { isComplete: () => Promise<boolean>; reminder: () => Promise<string>; completed?: Promise<void> };
+  finalize?: { isComplete: () => Promise<boolean>; reminder: () => Promise<string>; completed?: Promise<void>; maxFollowUps?: number };
 }): Promise<string> {
   const { prompt, cwd, model, skills, signal, label, onLog, onStream, onSkillsLoaded, onToolExecuted, sessionDir, customTools, finalize } = params;
   const sdk = await loadPiSdk();
@@ -140,12 +171,12 @@ export async function runReadOnlyPrompt(params: {
   // description frontmatter, name/dir mismatch) is visible in the console, and
   // hand the resolved skill file paths to the caller for gating.
   const loaded = loader.getSkills();
-  const loadedSkills = (loaded?.skills ?? []) as { name: string; filePath: string }[];
+  const loadedSkills = (loaded?.skills ?? []) as LoadedSkillInfo[];
   log(`skills loaded=${loadedSkills.length}${loadedSkills.length ? ` names=[${loadedSkills.map((s) => s.name).join(", ")}]` : ""}`);
   for (const d of (loaded?.diagnostics ?? []) as { type: string; message: string; path?: string }[]) {
     log(`skill ${d.type}: ${d.message}${d.path ? ` (${d.path})` : ""}`);
   }
-  onSkillsLoaded?.(loadedSkills.map((s) => s.filePath));
+  onSkillsLoaded?.(loadedSkills);
 
   const { session } = await sdk.createAgentSession({
     cwd,
@@ -228,15 +259,27 @@ export async function runReadOnlyPrompt(params: {
   });
 
   try {
-    await session.prompt(prompt, { expandPromptTemplates: false });
+    const promptAndCheck = async (nextPrompt: string) => {
+      await session.prompt(nextPrompt, { expandPromptTemplates: false });
+      const runError = errorMessage || (session.agent?.state?.errorMessage as string) || "";
+      if (runError) throw new Error(`pi run error: ${runError}`);
+    };
+    await promptAndCheck(prompt);
     // Tool-driven flows: keep nudging in the same session until complete. Skip
-    // when the flow already completed (and aborted the run) on submit.
+    // when the flow already completed (and aborted the run) on submit. Provider
+    // errors end immediately, and incomplete tool flows have a hard cap.
     if (finalize) {
+      let followUps = 0;
+      const maxFollowUps = Math.max(0, finalize.maxFollowUps ?? 2);
       while (!completedByFlow && !(await finalize.isComplete())) {
         if (signal?.aborted) break;
+        if (followUps >= maxFollowUps) {
+          throw new Error(`review flow did not complete after ${followUps} follow-up prompt(s)`);
+        }
+        followUps++;
         text = "";
         loggedText = false;
-        await session.prompt(await finalize.reminder(), { expandPromptTemplates: false });
+        await promptAndCheck(await finalize.reminder());
       }
     }
   } catch (err) {
